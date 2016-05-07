@@ -120,13 +120,20 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
             KillTimer(0);
             showProcessList();
             //该电脑上第一次运行该程序时默认设置为自启动
+            bool firstRun = false;
             ifstream fin(m_myPath + "AutoRunProcessList.txt");
             if (!fin.is_open())
-                setDlg.setStartup(1);
+                firstRun = true;
             fin.close();
-            //保证该文件在之后一直存在
-            ofstream fout(m_myPath + "AutoRunProcessList.txt", ios::out | ios::app);
-            fout.close();
+            if (firstRun){
+                setDlg.setStartup(1);
+                //保证该文件在之后一直存在
+                ofstream fout(m_myPath + "AutoRunProcessList.txt", ios::out | ios::app);
+                fout.close();
+                MessageBox("勾选对应程序左边的选框即可开启开机自启动项，关机时"
+                           "这些进程如果未关闭，下次开机后运行此程序将自动运行"
+                           "对应进程！", "开启提示", MB_ICONINFORMATION);
+            }
             break;
         }
         case 1: //在本程序启动时执行一次, 自动打开上次未关闭的进程
@@ -136,8 +143,15 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
             if (fin.is_open()){
                 string process;
                 while (getline(fin, process)){
-                    if (!isProcessExist(process.c_str()))
-                        ShellExecute(0, "open", process.c_str(), 0, 0, SW_SHOW);
+                    if (!isProcessExist(process.c_str())){
+                        if ((int)ShellExecute(0, "open", process.c_str(), 0, 0,
+                            SW_SHOW) < 32){
+                            CString err;
+                            err.Format("打开%s失败!lastError:%d", process.c_str(),
+                                       GetLastError());
+                            MessageBox(err, "失败提示");
+                        }
+                    }
                 }
             }
             fin.close();
