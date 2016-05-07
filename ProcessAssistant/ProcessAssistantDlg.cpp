@@ -33,6 +33,8 @@ CProcessAssistantDlg::CProcessAssistantDlg(CWnd* pParent /*=NULL*/)
     GetTempPath(MAX_PATH, path);
     m_myPath = path + CString("ProcessAssistant\\");
     CreateDirectory(m_myPath, 0);
+
+    m_autoRunFile = m_myPath + "autorun.txt";
 }
 
 void CProcessAssistantDlg::DoDataExchange(CDataExchange* pDX)
@@ -74,8 +76,8 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     m_wndList.SetImageList(&m_imgList, LVSIL_SMALL);
 
     SetTimer(0, 100, NULL);  //检查当前任务管理器中的进程,并添加启动项
-    SetTimer(1, 1, NULL);    //打开上次关闭时设置的进程
-    SetTimer(2, 1000, NULL); //查看监测的进程是否在运行
+    SetTimer(1, 1000, NULL); //查看监测的进程是否在运行
+    openUnclosedProcess();   //打开上次关闭时设置的进程
 
     return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -112,7 +114,6 @@ HCURSOR CProcessAssistantDlg::OnQueryDragIcon()
 
 void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
 {
-    static CString autoRunFile = m_myPath + "autorun.txt";
     switch (nIDEvent)
     {
         case 0: //在本程序启动时执行一次, 检查当前任务管理器中的进程,并添加启动项
@@ -136,55 +137,9 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
             }
             break;
         }
-        case 1: //在本程序启动时执行一次, 自动打开上次未关闭的进程
+        case 1: //每隔一定时间会执行一次, 查看监测的进程是否在运行
         {
-            KillTimer(1);
-            ifstream fin(autoRunFile);
-            if (fin.is_open()){
-                string process;
-                while (getline(fin, process)){
-                    if (!isProcessExist(process.c_str())){
-                        if ((int)ShellExecute(0, "open", process.c_str(), 0, 0,
-                            SW_SHOW) < 32){
-                            CString err;
-                            err.Format("打开%s失败!lastError:%d", process.c_str(),
-                                       GetLastError());
-                            MessageBox(err, "失败提示");
-                        }
-                    }
-                }
-            }
-            fin.close();
-            DeleteFile(autoRunFile);
-            break;
-        }
-        case 2: //每隔一定时间会执行一次, 查看监测的进程是否在运行
-        {
-            loadTaskMgrList();
-            for (int i = 0; i < m_listCnt; ++i){
-                if (isProcessExist(m_wndList.GetItemText(i, 1))){
-                    if (m_wndList.GetItemText(i, 2) != "运行中")
-                        m_wndList.SetItemText(i, 2, "运行中");
-                }
-                else{
-                    if (m_wndList.GetItemText(i, 2) != "")
-                        m_wndList.SetItemText(i, 2, "");
-                }
-            }
-            CString lists;
-            for (auto& elem : m_runList){
-                if (isProcessExist(elem)){
-                    lists += elem + "\n";
-                }
-            }
-            if (lists != ""){
-                ofstream fout(autoRunFile);
-                fout << lists;
-                fout.close();
-            }
-            else{
-                DeleteFile(autoRunFile);
-            }
+            updateProcessList();
             break;
         }
         default:
@@ -200,7 +155,7 @@ void CProcessAssistantDlg::OnBnClickedOk()
     for (int i = 0; i < m_listCnt; ++i)
         if (m_wndList.GetCheck(i)) {
             fout << m_wndList.GetItemText(i, 1) << endl;
-            m_runList.push_back(m_wndList.GetItemText(i, 1));
+            m_runList.insert(m_wndList.GetItemText(i, 1));
         }
     fout.close();
 
@@ -262,7 +217,8 @@ void CProcessAssistantDlg::loadTaskFileList()
             if (isProcessExist(process.c_str()))
                 m_wndList.SetItemText(item, 2, "运行中");
             m_processListMap[process.c_str()] = exeName; //存入map
-            m_runList.push_back(process.c_str());
+            m_processIndexMap[process.c_str()] = m_listCnt - 1;
+            m_runList.insert(process.c_str());
         }
     }
     fin.close();
@@ -296,9 +252,9 @@ void CProcessAssistantDlg::loadTaskMgrList()
                 int indexIcon = m_imgList.Add(hIcon);
                 int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
                 m_wndList.SetItemText(item, 1, exePath);
-                if (isProcessExist(exeName))
-                    m_wndList.SetItemText(item, 2, "运行中");
+                m_wndList.SetItemText(item, 2, "运行中");
                 m_processListMap[exePath] = exeName; //存入map
+                m_processIndexMap[exePath] = m_listCnt - 1;
             }
             DestroyIcon(hIcon); //销毁图标
             CloseHandle(hd);
@@ -307,9 +263,76 @@ void CProcessAssistantDlg::loadTaskMgrList()
     CloseHandle(hp);
 }
 
+void CProcessAssistantDlg::openUnclosedProcess()
+{
+    ifstream fin(m_autoRunFile);
+    if (fin.is_open()){
+        string process;
+        while (getline(fin, process)){
+            if (!isProcessExist(process.c_str())){
+                if ((int)ShellExecute(0, "open", process.c_str(), 0, 0, SW_SHOW) < 32){
+                    CString err;
+                    err.Format("打开%s失败!lastError:%d", process.c_str(),
+                               GetLastError());
+                    MessageBox(err, "失败提示");
+                }
+            }
+        }
+    }
+    fin.close();
+    DeleteFile(m_autoRunFile);
+}
+
+void CProcessAssistantDlg::updateProcessList()
+{
+    //删除已退出的进程的行和记录
+    for (auto it = m_processListMap.begin(); it != m_processListMap.end();){
+        auto itTmp = it++;
+        CString path = itTmp->first;
+        if (!isProcessExist(itTmp->second)){ //该进程已不存在
+            if (m_runList.count(itTmp->first) == 0){ //不在自启动列表中,则需要删除
+                for (auto& elem : m_processIndexMap)  //将该进程下面的进程序号减一
+                    if (elem.second > m_processIndexMap[path])
+                        --elem.second;
+                m_wndList.DeleteItem(m_processIndexMap[path]); //删除行
+                m_processIndexMap.erase(m_processIndexMap.find(path));
+                m_processListMap.erase(itTmp); //从进程列表映射表中删除
+            }
+            else{ //进程不存在但在自启动列表中,只需要将状态修改
+                if (m_wndList.GetItemText(m_processIndexMap[path], 2) != "")
+                    m_wndList.SetItemText(m_processIndexMap[path], 2, "");
+            }
+        }
+    }
+    //更新每个进程的状态
+    m_listCnt = m_wndList.GetItemCount();
+    for (int i = 0; i < m_listCnt; ++i){
+        if (isProcessExist(m_wndList.GetItemText(i, 1))){
+            if (m_wndList.GetItemText(i, 2) != "运行中")
+                m_wndList.SetItemText(i, 2, "运行中");
+        }
+        else if (m_wndList.GetItemText(i, 2) != "")
+            m_wndList.SetItemText(i, 2, "");
+    }
+    //载入任务管理器中的任务列表
+    loadTaskMgrList();
+    //将正在运行的需要自启动的进程保存到文件中,以供下次开机可自动打开
+    CString lists;
+    for (auto& elem : m_runList)
+        if (isProcessExist(elem))
+            lists += elem + "\n";
+    if (lists != ""){
+        ofstream fout(m_autoRunFile);
+        fout << lists;
+        fout.close();
+    }
+    else
+        DeleteFile(m_autoRunFile);
+}
 
 
-//另一种获取进程列表的方式
+
+///另一种获取进程列表的方式
 #include <Psapi.h>
 #pragma comment(lib,"Psapi.lib")
 void enumProcesses()
