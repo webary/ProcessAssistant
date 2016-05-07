@@ -1,0 +1,11 @@
+*.o
+*.aps
+*.suo
+*.user
+*.aps
+*.bat
+
+Debug
+Release
+.vs
+

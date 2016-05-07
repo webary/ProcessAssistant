@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+    <assemblyIdentity version="1.0.0.0" processorArchitecture="X86" name="mulitray.exe.manifest" type="win32" />
+    <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+        <security>
+            <requestedPrivileges>
+                <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+<!--requestedExecutionLevel可以指定为三个值：
+asInvoker：默认选项，新的进程将简单地继承其父进程的访问令牌。 
+highestAvailable：应用程序会选择该用户允许范围内尽可能宽松的安全上下文。对于标准用户来说，该选项与asInvoker一样，而对于管理员来说，这就意味着请求非限制访问令牌。 
+requireAdministrator：应用程序需要管理员的非限制访问令牌。运行该程序时，标准用户将要输入管理员的用户名和密码，而管理原则要在弹出的确认对话框中进行确认。-->
+            </requestedPrivileges>
+        </security>
+    </trustInfo>
+</assembly> 
