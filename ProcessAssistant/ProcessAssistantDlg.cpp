@@ -5,11 +5,14 @@
 #include "stdafx.h"
 #include "ProcessAssistant.h"
 #include "ProcessAssistantDlg.h"
-#include "afxdialogex.h"
-#include "tlhelp32.h"
+#include <afxdialogex.h>
+
+#include <tlhelp32.h>
+#include <psapi.h>
+#pragma comment(lib,"Psapi.lib")
+
 #include <fstream>
 #include <string>
-
 using namespace std;
 
 #ifdef _DEBUG
@@ -25,6 +28,7 @@ CProcessAssistantDlg::CProcessAssistantDlg(CWnd* pParent /*=NULL*/)
     : CDialog(CProcessAssistantDlg::IDD, pParent)
 {
     m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+
     char path[MAX_PATH] = "";
     GetTempPath(MAX_PATH, path);
     m_myPath = path + CString("ProcessAssistant\\");
@@ -50,9 +54,7 @@ END_MESSAGE_MAP()
 BOOL CProcessAssistantDlg::OnInitDialog()
 {
     CDialog::OnInitDialog();
-
-    // 设置此对话框的图标。  当应用程序主窗口不是对话框时，框架将自动
-    //  执行此操作
+    // 设置此对话框的图标。当应用程序主窗口不是对话框时，框架将自动执行此操作
     SetIcon(m_hIcon, TRUE);			// 设置大图标
     SetIcon(m_hIcon, FALSE);		// 设置小图标
 
@@ -66,9 +68,13 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     //设置文本显示颜色
     m_wndList.SetTextColor(RGB(0, 255, 0));
 
+    m_listCnt = 0;
+    m_imgList.Create(32, 32, ILC_COLOR32, 0, 100);
+    m_wndList.SetImageList(&m_imgList, LVSIL_SMALL);
+
     SetTimer(0, 100, NULL);  //检查当前任务管理器中的进程,并添加启动项
     SetTimer(1, 1, NULL);    //打开上次关闭时设置的进程
-    SetTimer(2, 2000, NULL); //查看监测的进程是否在运行
+    SetTimer(2, 500, NULL);  //查看监测的进程是否在运行
 
     return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -98,106 +104,16 @@ void CProcessAssistantDlg::OnPaint()
     }
 }
 
-//当用户拖动最小化窗口时系统调用此函数取得光标
-//显示。
 HCURSOR CProcessAssistantDlg::OnQueryDragIcon()
 {
     return static_cast<HCURSOR>(m_hIcon);
-}
-
-
-#include <psapi.h>
-#pragma comment(lib,"Psapi.lib")
-void CProcessAssistantDlg::showProcessList()
-{
-    HANDLE hp = CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0);
-    if (hp == INVALID_HANDLE_VALUE){
-        CString err;
-        err.Format("%d", GetLastError());
-        MessageBox("建立进程快照失败！" + err, "温馨提示");
-        return;
-    }
-    m_wndList.DeleteAllItems();
-    int cnt = 0;
-    static CImageList *imgList = NULL;
-    delete imgList;
-    imgList = new CImageList;
-    imgList->Create(32, 32, ILC_COLOR32, 0, 100);
-    m_wndList.SetImageList(imgList, LVSIL_SMALL);
-
-    m_processListMap.clear();
-    m_runList.clear();
-    ifstream fin(m_myPath + "AutoRunProcessList.txt");
-    if (fin.is_open()){
-        string process;
-        while (getline(fin, process)){
-            HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), process.c_str(), 0);
-            int indexIcon = imgList->Add(hIcon);
-            CString exeName = process.substr(process.rfind('\\') + 1).c_str();
-            int item = m_wndList.InsertItem(cnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
-            m_wndList.SetItemText(item, 1, process.c_str());
-            m_wndList.SetCheck(item);
-            if (isProcessExist(process.c_str()))
-                m_wndList.SetItemText(item, 2, "运行中");
-            m_processListMap[process.c_str()] = exeName; //存入map
-            m_runList.push_back(process.c_str());
-        }
-    }
-    fin.close();
-
-    PROCESSENTRY32 pe32 = { sizeof(pe32) };
-    for (BOOL find = Process32First(hp, &pe32); find != 0; find = Process32Next(hp, &pe32)) {
-        HANDLE hd = OpenProcess(PROCESS_ALL_ACCESS, 0, pe32.th32ProcessID);
-        if (hd != NULL) {
-            char exePath[255];
-            GetModuleFileNameEx(hd, NULL, exePath, 255);
-            //获得程序图标
-            HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), exePath, 0);
-            if (hIcon != NULL && m_processListMap.find(exePath) == m_processListMap.end()){
-                CString path = exePath, exeName = path.Right(path.GetLength() - path.ReverseFind('\\') - 1);
-                static char myName[MAX_PATH] = { 0 }; //本程序的进程名
-                static int unused1 = GetModuleFileName(NULL, myName, MAX_PATH);
-                if (path == myName || path.Find("system32") != -1 || path.Find("SysWOW64") != -1)
-                    continue;
-                int indexIcon = imgList->Add(hIcon);
-                int item = m_wndList.InsertItem(cnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
-                m_wndList.SetItemText(item, 1, exePath);
-                if (isProcessExist(exeName))
-                    m_wndList.SetItemText(item, 2, "运行中");
-                m_processListMap[exePath] = exeName; //存入map
-            }
-            DestroyIcon(hIcon); //销毁图标
-            CloseHandle(hd);
-        }
-    }
-    CloseHandle(hp);
-}
-
-
-bool CProcessAssistantDlg::isProcessExist(CString name)
-{
-    HANDLE hp = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hp == INVALID_HANDLE_VALUE)
-        return false;
-    int i = name.ReverseFind('\\');
-    if (i != -1)
-        name = name.Right(name.GetLength() - i - 1);
-    PROCESSENTRY32 pe32 = { sizeof(pe32) };
-    for (BOOL find = Process32First(hp, &pe32); find != 0; find = Process32Next(hp, &pe32)) {
-        if (name == pe32.szExeFile){
-            CloseHandle(hp);
-            return true;
-        }
-    }
-    CloseHandle(hp);
-    return false;
 }
 
 void CProcessAssistantDlg::OnBnClickedOk()
 {
     m_runList.clear();
     ofstream fout(m_myPath + "AutoRunProcessList.txt");
-    for (int i = 0; i < m_wndList.GetItemCount(); ++i)
+    for (int i = 0; i < m_listCnt; ++i)
         if (m_wndList.GetCheck(i)) {
             fout << m_wndList.GetItemText(i, 1) << endl;
             m_runList.push_back(m_wndList.GetItemText(i, 1));
@@ -216,7 +132,6 @@ void CProcessAssistantDlg::OnBnClickedOk()
                    "开启提示", MB_ICONINFORMATION);
     }
 }
-
 
 void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
 {
@@ -278,6 +193,17 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
         }
         case 2: //每隔一定时间会执行一次, 查看监测的进程是否在运行
         {
+            loadTaskMgrList();
+            for (int i = 0; i < m_listCnt; ++i){
+                if (isProcessExist(m_wndList.GetItemText(i, 1))){
+                    if (m_wndList.GetItemText(i, 2) != "运行中")
+                        m_wndList.SetItemText(i, 2, "运行中");
+                }
+                else{
+                    if (m_wndList.GetItemText(i, 2) != "")
+                        m_wndList.SetItemText(i, 2, "");
+                }
+            }
             CString lists;
             for (auto& elem : m_runList){
                 if (isProcessExist(elem)){
@@ -301,7 +227,94 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
 }
 
 
-//另一种方式获取进程列表
+bool CProcessAssistantDlg::isProcessExist(CString name)
+{
+    HANDLE hp = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hp == INVALID_HANDLE_VALUE)
+        return false;
+    int i = name.ReverseFind('\\');
+    if (i != -1)
+        name = name.Right(name.GetLength() - i - 1);
+    PROCESSENTRY32 pe32 = { sizeof(pe32) };
+    for (BOOL find = Process32First(hp, &pe32); find != 0; find = Process32Next(hp, &pe32)) {
+        if (name == pe32.szExeFile){
+            CloseHandle(hp);
+            return true;
+        }
+    }
+    CloseHandle(hp);
+    return false;
+}
+
+void CProcessAssistantDlg::showProcessList()
+{
+    loadTaskFileList();
+    loadTaskMgrList();
+}
+
+void CProcessAssistantDlg::loadTaskFileList()
+{
+    ifstream fin(m_myPath + "AutoRunProcessList.txt");
+    if (fin.is_open()){
+        string process;
+        while (getline(fin, process)){
+            HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), process.c_str(), 0);
+            int indexIcon = m_imgList.Add(hIcon);
+            CString exeName = process.substr(process.rfind('\\') + 1).c_str();
+            int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
+            m_wndList.SetItemText(item, 1, process.c_str());
+            m_wndList.SetCheck(item);
+            if (isProcessExist(process.c_str()))
+                m_wndList.SetItemText(item, 2, "运行中");
+            m_processListMap[process.c_str()] = exeName; //存入map
+            m_runList.push_back(process.c_str());
+        }
+    }
+    fin.close();
+}
+
+void CProcessAssistantDlg::loadTaskMgrList()
+{
+    static char myName[MAX_PATH] = { 0 }; //本程序的进程名
+    static int unused1 = GetModuleFileName(NULL, myName, MAX_PATH);
+    static char unused2 = myName[0] = toupper(myName[0]); //避免盘符大小写不识别问题
+    HANDLE hp = CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0);
+    if (hp == INVALID_HANDLE_VALUE){
+        CString err;
+        err.Format("%d", GetLastError());
+        MessageBox("建立进程快照失败！" + err, "温馨提示");
+        return;
+    }
+    PROCESSENTRY32 pe32 = { sizeof(pe32) };
+    for (BOOL find = Process32First(hp, &pe32); find != 0; find = Process32Next(hp, &pe32)) {
+        HANDLE hd = OpenProcess(PROCESS_ALL_ACCESS, 0, pe32.th32ProcessID);
+        if (hd != NULL) {
+            char exePath[255];
+            GetModuleFileNameEx(hd, NULL, exePath, 255);
+            exePath[0] = toupper(exePath[0]); //避免盘符大小写不识别问题
+            //获得程序图标
+            HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), exePath, 0);
+            if (hIcon != NULL && m_processListMap.find(exePath) == m_processListMap.end()){
+                CString path = exePath, exeName = path.Right(path.GetLength() - path.ReverseFind('\\') - 1);
+                if (path == myName || path.Find("system32") != -1 || path.Find("SysWOW64") != -1)
+                    continue;
+                int indexIcon = m_imgList.Add(hIcon);
+                int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
+                m_wndList.SetItemText(item, 1, exePath);
+                if (isProcessExist(exeName))
+                    m_wndList.SetItemText(item, 2, "运行中");
+                m_processListMap[exePath] = exeName; //存入map
+            }
+            DestroyIcon(hIcon); //销毁图标
+            CloseHandle(hd);
+        }
+    }
+    CloseHandle(hp);
+}
+
+
+
+//另一种获取进程列表的方式
 #include <Psapi.h>
 #pragma comment(lib,"Psapi.lib")
 void enumProcesses()
