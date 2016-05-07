@@ -46,6 +46,7 @@ BEGIN_MESSAGE_MAP(CProcessAssistantDlg, CDialog)
     ON_WM_QUERYDRAGICON()
     ON_BN_CLICKED(IDOK, &CProcessAssistantDlg::OnBnClickedOk)
     ON_WM_TIMER()
+    ON_BN_CLICKED(IDC_BT_SET, &CProcessAssistantDlg::OnBnClickedBtSet)
 END_MESSAGE_MAP()
 
 
@@ -74,7 +75,7 @@ BOOL CProcessAssistantDlg::OnInitDialog()
 
     SetTimer(0, 100, NULL);  //检查当前任务管理器中的进程,并添加启动项
     SetTimer(1, 1, NULL);    //打开上次关闭时设置的进程
-    SetTimer(2, 500, NULL);  //查看监测的进程是否在运行
+    SetTimer(2, 1000, NULL); //查看监测的进程是否在运行
 
     return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -109,30 +110,6 @@ HCURSOR CProcessAssistantDlg::OnQueryDragIcon()
     return static_cast<HCURSOR>(m_hIcon);
 }
 
-void CProcessAssistantDlg::OnBnClickedOk()
-{
-    m_runList.clear();
-    ofstream fout(m_myPath + "AutoRunProcessList.txt");
-    for (int i = 0; i < m_listCnt; ++i)
-        if (m_wndList.GetCheck(i)) {
-            fout << m_wndList.GetItemText(i, 1) << endl;
-            m_runList.push_back(m_wndList.GetItemText(i, 1));
-        }
-    fout.close();
-
-    CString selected;
-    for (auto& elem : m_runList)
-        selected += elem + "\n";
-    if (selected.IsEmpty()){
-        MessageBox("已取消所有开机启动项", "关闭提示", MB_ICONINFORMATION);
-    }
-    else{
-        MessageBox("已开启下列开机启动项: \r\n" + selected + "关机时上述进程"
-                   "如果未关闭，下次开机后运行此程序将自动打开上述进程！",
-                   "开启提示", MB_ICONINFORMATION);
-    }
-}
-
 void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
 {
     static CString autoRunFile = m_myPath + "autorun.txt";
@@ -142,38 +119,14 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
         {
             KillTimer(0);
             showProcessList();
-            //判断是否有开机启动项，如果没有则添加
-            HKEY hKey;
-            LPCTSTR lpRun = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-            long lRet = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lpRun, 0, KEY_WRITE | KEY_READ, &hKey);
-            if (lRet == ERROR_SUCCESS)
-            {
-                char myName[MAX_PATH] = { 0 };
-                DWORD dwRet = GetModuleFileName(NULL, myName, MAX_PATH); //得到程序自身的全路径
-                char data[1000] = { 0 };
-                DWORD dwType = REG_SZ, dwSize;
-                RegQueryValueEx(hKey, "ProcessAssistant", 0, &dwType, (BYTE*)data, &dwSize); //看是否已有该启动项
-                if (CString(data) == myName){
-                    MessageBox("已存在该程序开机自启动项！", "温馨提示");
-                    break;
-                }
-                lRet = RegSetValueEx(hKey, "ProcessAssistant", 0, REG_SZ, (BYTE *)myName, dwRet);
-                RegCloseKey(hKey);
-                if (lRet != ERROR_SUCCESS)
-                {
-                    MessageBox("系统参数错误,不能完成开机启动设置", "温馨提示");
-                }
-                else
-                {
-                    MessageBox("已成功设置该程序开机自启动！", "温馨提示", MB_ICONINFORMATION);
-                }
-            }
-            else
-            {
-                CString err;
-                err.Format("lastError:%d(lRet:%d)", GetLastError(), lRet);
-                MessageBox("打开注册表中启动项目录失败!" + err, "失败提示");
-            }
+            //该电脑上第一次运行该程序时默认设置为自启动
+            ifstream fin(m_myPath + "AutoRunProcessList.txt");
+            if (!fin.is_open())
+                setDlg.setStartup(1);
+            fin.close();
+            //保证该文件在之后一直存在
+            ofstream fout(m_myPath + "AutoRunProcessList.txt", ios::out | ios::app);
+            fout.close();
             break;
         }
         case 1: //在本程序启动时执行一次, 自动打开上次未关闭的进程
@@ -226,6 +179,34 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
     CDialog::OnTimer(nIDEvent);
 }
 
+void CProcessAssistantDlg::OnBnClickedOk()
+{
+    m_runList.clear();
+    ofstream fout(m_myPath + "AutoRunProcessList.txt");
+    for (int i = 0; i < m_listCnt; ++i)
+        if (m_wndList.GetCheck(i)) {
+            fout << m_wndList.GetItemText(i, 1) << endl;
+            m_runList.push_back(m_wndList.GetItemText(i, 1));
+        }
+    fout.close();
+
+    CString selected;
+    for (auto& elem : m_runList)
+        selected += elem + "\n";
+    if (selected.IsEmpty()){
+        MessageBox("已取消所有开机启动项", "关闭提示", MB_ICONINFORMATION);
+    }
+    else{
+        MessageBox("已开启下列开机启动项: \r\n" + selected + "关机时上述进程"
+                   "如果未关闭，下次开机后运行此程序将自动打开上述进程！",
+                   "开启提示", MB_ICONINFORMATION);
+    }
+}
+
+void CProcessAssistantDlg::OnBnClickedBtSet()
+{
+    setDlg.DoModal();
+}
 
 bool CProcessAssistantDlg::isProcessExist(CString name)
 {

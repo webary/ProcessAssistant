@@ -6,6 +6,7 @@
 #include <map>
 #include <vector>
 #include "afxwin.h"
+#include "SettingDlg.h"
 
 // CProcessAssistantDlg 对话框
 class CProcessAssistantDlg : public CDialog
@@ -23,8 +24,9 @@ protected:
     virtual BOOL OnInitDialog();
     afx_msg HCURSOR OnQueryDragIcon();
     afx_msg void OnPaint();
-    afx_msg void OnBnClickedOk();
     afx_msg void OnTimer(UINT_PTR nIDEvent);
+    afx_msg void OnBnClickedOk();
+    afx_msg void OnBnClickedBtSet();
     DECLARE_MESSAGE_MAP()
 
 protected:
@@ -35,6 +37,7 @@ protected:
     CImageList m_imgList;  //图标列表
     int m_listCnt;         //列表计数器
     CString m_myPath;      //临时文件夹中的个人文件夹
+    SettingDlg setDlg;     //设置对话框
 
 public:
     bool isProcessExist(CString name); //判断指定进程是否存在(即是否已打开该程序)
