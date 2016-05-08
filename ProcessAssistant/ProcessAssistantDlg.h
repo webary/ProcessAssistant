@@ -13,7 +13,7 @@ class CProcessAssistantDlg : public CDialog
 {
 public:
     CProcessAssistantDlg(CWnd* pParent = NULL);	// 标准构造函数
-
+    ~CProcessAssistantDlg();
     // 对话框数据
     enum {
         IDD = IDD_PROCESSASSISTANT_DIALOG
@@ -27,6 +27,11 @@ protected:
     afx_msg void OnTimer(UINT_PTR nIDEvent);
     afx_msg void OnBnClickedOk();
     afx_msg void OnBnClickedBtSet();
+    afx_msg void OnOpenMainDlg();  //任务栏菜单-打开主界面
+    afx_msg void OnExitMe();       //任务栏菜单-退出
+    afx_msg void OnClose();        //对话框的关闭消息
+    afx_msg LRESULT OnNotifyIconMsg(WPARAM wParam, LPARAM lParam);//处理通知栏消息
+    afx_msg void OnDblclkListProcess(NMHDR *pNMHDR, LRESULT *pResult); //双击消息
     DECLARE_MESSAGE_MAP()
 
 protected:
@@ -40,6 +45,8 @@ protected:
     CString m_myPath;      //临时文件夹中的个人文件夹
     SettingDlg setDlg;     //设置对话框
     CString m_autoRunFile; //保存需要自动运行的进程的文件
+    NOTIFYICONDATA nid;    //通知消息的结构体变量
+    HANDLE hmutex;         //创建互斥锁,保证只有一个实例在运行
 
 public:
     bool isProcessExist(CString name); //判断指定进程是否存在(即是否已打开该程序)

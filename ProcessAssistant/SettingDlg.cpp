@@ -103,7 +103,6 @@ void SettingDlg::OnBnClickedSetOk()
     CDialogEx::OnOK();
 }
 
-
 void SettingDlg::OnBnClickedCheckOpenLastDir()
 {
     if (IsDlgButtonChecked(IDC_CHECK_OPEN_LAST_DIR))

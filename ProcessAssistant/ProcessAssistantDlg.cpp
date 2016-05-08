@@ -19,10 +19,7 @@ using namespace std;
 #define new DEBUG_NEW
 #endif
 
-
 // CProcessAssistantDlg 对话框
-
-
 
 CProcessAssistantDlg::CProcessAssistantDlg(CWnd* pParent /*=NULL*/)
     : CDialog(CProcessAssistantDlg::IDD, pParent)
@@ -37,18 +34,32 @@ CProcessAssistantDlg::CProcessAssistantDlg(CWnd* pParent /*=NULL*/)
     m_autoRunFile = m_myPath + "autorun.txt";
 }
 
+CProcessAssistantDlg::~CProcessAssistantDlg()
+{
+    Shell_NotifyIcon(NIM_DELETE, &nid);
+    ReleaseMutex(hmutex);
+}
+
 void CProcessAssistantDlg::DoDataExchange(CDataExchange* pDX)
 {
     CDialog::DoDataExchange(pDX);
     DDX_Control(pDX, IDC_LIST_PROCESS, m_wndList);
 }
 
+
+#define WM_NOTIFYICONMSG WM_USER + 1 //托盘消息
+
 BEGIN_MESSAGE_MAP(CProcessAssistantDlg, CDialog)
     ON_WM_PAINT()
     ON_WM_QUERYDRAGICON()
-    ON_BN_CLICKED(IDOK, &CProcessAssistantDlg::OnBnClickedOk)
     ON_WM_TIMER()
+    ON_WM_CLOSE()
+    ON_MESSAGE(WM_NOTIFYICONMSG, OnNotifyIconMsg)
+    ON_BN_CLICKED(IDOK, &CProcessAssistantDlg::OnBnClickedOk)
     ON_BN_CLICKED(IDC_BT_SET, &CProcessAssistantDlg::OnBnClickedBtSet)
+    ON_COMMAND(ID_OPEN_MAIN_DLG, &CProcessAssistantDlg::OnOpenMainDlg)
+    ON_COMMAND(ID_EXIT_ME, &CProcessAssistantDlg::OnExitMe)
+    ON_NOTIFY(NM_DBLCLK, IDC_LIST_PROCESS, &CProcessAssistantDlg::OnDblclkListProcess)
 END_MESSAGE_MAP()
 
 
@@ -56,12 +67,17 @@ END_MESSAGE_MAP()
 
 BOOL CProcessAssistantDlg::OnInitDialog()
 {
+    //利用互斥锁机制保证最多只有一个该实例正在运行
+    hmutex = ::CreateMutex(NULL, true, "ProcessAssistant");
+    if (ERROR_ALREADY_EXISTS == GetLastError()) { //若互斥锁已存在则直接关闭
+        MessageBox("请不要重复打开该程序哦,我的前身还在通知栏运行着呢^ _ ^", 0, MB_ICONWARNING);
+        OnCancel();
+    }
     CDialog::OnInitDialog();
     // 设置此对话框的图标。当应用程序主窗口不是对话框时，框架将自动执行此操作
     SetIcon(m_hIcon, TRUE);			// 设置大图标
     SetIcon(m_hIcon, FALSE);		// 设置小图标
 
-    // TODO:  在此添加额外的初始化代码
     //整行选定 + 显示表格线 + 复选框 + 扁平滚动条
     m_wndList.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_CHECKBOXES | LVS_EX_FLATSB);
     //设置表头
@@ -77,7 +93,21 @@ BOOL CProcessAssistantDlg::OnInitDialog()
 
     SetTimer(0, 100, NULL);  //检查当前任务管理器中的进程,并添加启动项
     SetTimer(1, 1000, NULL); //查看监测的进程是否在运行
-    openUnclosedProcess();   //打开上次关闭时设置的进程
+    openUnclosedProcess();   //打开上次关机时未关闭的进程
+
+    //设置托盘消息 - 必须在这里赋值，如果在构造函数赋值，鼠标指向托盘图标后即消失
+    nid.cbSize = sizeof(NOTIFYICONDATA);
+    nid.hWnd = m_hWnd;
+    nid.uFlags = NIF_INFO | NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.dwInfoFlags = NIIF_INFO;
+    nid.hIcon = m_hIcon;
+    nid.uCallbackMessage = WM_NOTIFYICONMSG;
+    strcpy(nid.szTip, "进程助手");
+    strcpy(nid.szInfoTitle, "进程助手已驻扎在通知栏");//气泡标题
+    strcpy(nid.szInfo, "我将在这里检查主人设置的程序是否在运行，您可以点击"
+           "主窗口的关闭，我还会一直在这里运行着，如果真的想关闭我，"
+           "可以右键单击我，然后选择退出");//气泡内容
+    Shell_NotifyIcon(NIM_ADD, &nid);
 
     return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -177,6 +207,58 @@ void CProcessAssistantDlg::OnBnClickedBtSet()
     setDlg.DoModal();
 }
 
+void CProcessAssistantDlg::OnOpenMainDlg()
+{
+    ShowWindow(SW_SHOW);
+}
+
+void CProcessAssistantDlg::OnExitMe()
+{
+    PostQuitMessage(0);
+}
+
+void CProcessAssistantDlg::OnClose()
+{
+    ShowWindow(SW_HIDE);
+    strcpy(nid.szInfoTitle, "进程助手已隐藏到通知栏");//气泡标题
+    strcpy(nid.szInfo, "我将在这里检查主人设置的程序是否在运行，如果您关机的"
+           "时候没有关闭他们，我将在下次开机时为主人打开他们哦");//气泡内容
+    Shell_NotifyIcon(NIM_MODIFY, &nid);
+}
+
+LRESULT CProcessAssistantDlg::OnNotifyIconMsg(WPARAM wParam, LPARAM lParam)
+{
+    CPoint Point;
+    CMenu pMenu;//加载菜单
+    switch (lParam) {
+        case WM_RBUTTONDOWN: //如果按下鼠标右建
+            if (pMenu.LoadMenu(IDR_MENU1)) {
+                CMenu* pPopup = pMenu.GetSubMenu(0);
+                GetCursorPos(&Point);
+                SetForegroundWindow();
+                pPopup->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, Point.x, Point.y, this);
+            }
+            break;
+        case WM_LBUTTONDBLCLK:
+            this->ShowWindow(SW_SHOW);
+            break;
+        default:
+            break;
+    }
+    return 0;
+}
+
+void CProcessAssistantDlg::OnDblclkListProcess(NMHDR *pNMHDR, LRESULT *pResult)
+{
+    LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+    int item = pNMItemActivate->iItem;
+    if (item >= 0 && item <= m_wndList.GetItemCount())
+        m_wndList.SetCheck(item, !m_wndList.GetCheck(item));
+    *pResult = 0;
+}
+
+// CProcessAssistantDlg 自定义函数
+
 bool CProcessAssistantDlg::isProcessExist(CString name)
 {
     HANDLE hp = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -229,7 +311,7 @@ void CProcessAssistantDlg::loadTaskMgrList()
     static char myName[MAX_PATH] = { 0 }; //本程序的进程名
     static int unused1 = GetModuleFileName(NULL, myName, MAX_PATH);
     static char unused2 = myName[0] = toupper(myName[0]); //避免盘符大小写不识别问题
-    HANDLE hp = CreateToolhelp32Snapshot(TH32CS_SNAPALL, 0);
+    HANDLE hp = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hp == INVALID_HANDLE_VALUE){
         CString err;
         err.Format("%d", GetLastError());
