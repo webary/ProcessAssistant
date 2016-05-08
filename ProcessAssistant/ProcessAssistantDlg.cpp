@@ -25,19 +25,21 @@ CProcessAssistantDlg::CProcessAssistantDlg(CWnd* pParent /*=NULL*/)
     : CDialog(CProcessAssistantDlg::IDD, pParent)
 {
     m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+    m_listCnt = 0;
 
     char path[MAX_PATH] = "";
     GetTempPath(MAX_PATH, path);
-    m_myPath = path + CString("ProcessAssistant\\");
-    CreateDirectory(m_myPath, 0);
+    CString m_myPath = path + CString("ProcessAssistant\\");
+    CreateDirectory(m_myPath, 0); //在临时文件夹中创建本应用的文件夹
 
-    m_autoRunFile = m_myPath + "autorun.txt";
+    m_autoRunListFile = m_myPath + "autorun.dat";
+    m_checkedListFile = m_myPath + "checkedList.dat";
 }
 
 CProcessAssistantDlg::~CProcessAssistantDlg()
 {
-    Shell_NotifyIcon(NIM_DELETE, &nid);
-    ReleaseMutex(hmutex);
+    Shell_NotifyIcon(NIM_DELETE, &m_nid);
+    ReleaseMutex(m_hmutex);
 }
 
 void CProcessAssistantDlg::DoDataExchange(CDataExchange* pDX)
@@ -68,10 +70,12 @@ END_MESSAGE_MAP()
 BOOL CProcessAssistantDlg::OnInitDialog()
 {
     //利用互斥锁机制保证最多只有一个该实例正在运行
-    hmutex = ::CreateMutex(NULL, true, "ProcessAssistant");
+    m_hmutex = ::CreateMutex(NULL, true, "ProcessAssistant");
     if (ERROR_ALREADY_EXISTS == GetLastError()) { //若互斥锁已存在则直接关闭
-        MessageBox("请不要重复打开该程序哦,我的前身还在通知栏运行着呢^ _ ^", 0, MB_ICONWARNING);
+        MessageBox("请不要重复打开该程序哦，我的前身还在通知栏运行着呢^ _ ^",
+                   0, MB_ICONWARNING);
         OnCancel();
+        return FALSE;
     }
     CDialog::OnInitDialog();
     // 设置此对话框的图标。当应用程序主窗口不是对话框时，框架将自动执行此操作
@@ -86,28 +90,26 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     m_wndList.InsertColumn(2, "备注", 0, 50);
     //设置文本显示颜色
     m_wndList.SetTextColor(RGB(0, 255, 0));
+    //设置图标列表
+    m_iconList.Create(32, 32, ILC_COLOR32, 0, 100);
+    m_wndList.SetImageList(&m_iconList, LVSIL_SMALL);
 
-    m_listCnt = 0;
-    m_imgList.Create(32, 32, ILC_COLOR32, 0, 100);
-    m_wndList.SetImageList(&m_imgList, LVSIL_SMALL);
+    SetTimer(0, 100, NULL);  //显示进程列表,打开上次未关闭的进程,并添加启动项
+    SetTimer(1, 3000, NULL); //查看监测的进程是否在运行
 
-    SetTimer(0, 100, NULL);  //检查当前任务管理器中的进程,并添加启动项
-    SetTimer(1, 4000, NULL); //查看监测的进程是否在运行
-    openUnclosedProcess();   //打开上次关机时未关闭的进程
-
-    //设置托盘消息 - 必须在这里赋值，如果在构造函数赋值，鼠标指向托盘图标后即消失
-    nid.cbSize = sizeof(NOTIFYICONDATA);
-    nid.hWnd = m_hWnd;
-    nid.uFlags = NIF_INFO | NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    nid.dwInfoFlags = NIIF_INFO;
-    nid.hIcon = m_hIcon;
-    nid.uCallbackMessage = WM_NOTIFYICONMSG;
-    strcpy(nid.szTip, "进程助手");
-    strcpy(nid.szInfoTitle, "进程助手已驻扎在通知栏");//气泡标题
-    strcpy(nid.szInfo, "我将在这里检查主人设置的程序是否在运行，您可以点击"
+    //设置托盘消息 - 必须在这里赋值,如果在构造函数赋值,鼠标指向托盘图标后即消失
+    m_nid.cbSize = sizeof(NOTIFYICONDATA);
+    m_nid.hWnd = m_hWnd;
+    m_nid.uFlags = NIF_INFO | NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    m_nid.dwInfoFlags = NIIF_INFO;
+    m_nid.hIcon = m_hIcon;
+    m_nid.uCallbackMessage = WM_NOTIFYICONMSG;
+    strcpy(m_nid.szTip, "进程助手");
+    strcpy(m_nid.szInfoTitle, "进程助手已驻扎在通知栏");//气泡标题
+    strcpy(m_nid.szInfo, "我将在这里检查主人设置的程序是否在运行，您可以点击"
            "主窗口的关闭，我还会一直在这里运行着，如果真的想关闭我，"
            "可以右键单击我，然后选择退出");//气泡内容
-    Shell_NotifyIcon(NIM_ADD, &nid);
+    Shell_NotifyIcon(NIM_ADD, &m_nid);
 
     return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -146,25 +148,26 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
 {
     switch (nIDEvent)
     {
-        case 0: //在本程序启动时执行一次, 检查当前任务管理器中的进程,并添加启动项
+        case 0: //在本程序启动时执行一次,检查当前任务管理器中的进程,并添加启动项
         {
             KillTimer(0);
             showProcessList();
             //该电脑上第一次运行该程序时默认设置为自启动
             bool firstRun = false;
-            ifstream fin(m_myPath + "AutoRunProcessList.txt");
+            ifstream fin(m_checkedListFile);
             if (!fin.is_open())
                 firstRun = true;
             fin.close();
             if (firstRun){
-                setDlg.setStartup(1);
+                m_setDlg.setStartup(1);
                 //保证该文件在之后一直存在
-                ofstream fout(m_myPath + "AutoRunProcessList.txt", ios::out | ios::app);
+                ofstream fout(m_checkedListFile, ios::out | ios::app);
                 fout.close();
                 MessageBox("勾选对应程序左边的选框即可开启开机自启动项，关机时"
                            "这些进程如果未关闭，下次开机后运行此程序将自动运行"
                            "对应进程！", "开启提示", MB_ICONINFORMATION);
             }
+            openUnclosedProcess(); //打开上次关机时未关闭的进程
             break;
         }
         case 1: //每隔一定时间会执行一次, 查看监测的进程是否在运行
@@ -180,17 +183,17 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
 
 void CProcessAssistantDlg::OnBnClickedOk()
 {
-    m_runList.clear();
-    ofstream fout(m_myPath + "AutoRunProcessList.txt");
-    for (int i = 0; i < m_listCnt; ++i)
-        if (m_wndList.GetCheck(i)) {
+    m_checkedList.clear();
+    ofstream fout(m_checkedListFile);
+    for (int i = 0; i < m_wndList.GetItemCount(); ++i)
+        if (m_wndList.GetCheck(i)){
             fout << m_wndList.GetItemText(i, 1) << endl;
-            m_runList.insert(m_wndList.GetItemText(i, 1));
+            m_checkedList.insert(m_wndList.GetItemText(i, 1));
         }
     fout.close();
 
     CString selected;
-    for (auto& elem : m_runList)
+    for (auto& elem : m_checkedList)
         selected += elem + "\n";
     if (selected.IsEmpty()){
         MessageBox("已取消所有开机启动项", "关闭提示", MB_ICONINFORMATION);
@@ -204,7 +207,7 @@ void CProcessAssistantDlg::OnBnClickedOk()
 
 void CProcessAssistantDlg::OnBnClickedBtSet()
 {
-    setDlg.DoModal();
+    m_setDlg.DoModal();
 }
 
 void CProcessAssistantDlg::OnOpenMainDlg()
@@ -216,18 +219,19 @@ void CProcessAssistantDlg::OnOpenMainDlg()
 void CProcessAssistantDlg::OnExitMe()
 {
     OnOpenMainDlg();
-    if (MessageBox("退出后将不能检测指定程序的运行状态，可能无法完成下次开机后"
-        "打开上次未关闭的进程。你确定要退出么？", "退出提醒", MB_YESNO) == IDYES)
+    if (MessageBox("退出后将不能检测指定程序的运行状态，可能就无法完成下次开机"
+        "后打开上次未关闭的进程了哦。主人确定要残忍的关闭我么？", "退出提醒",
+        MB_YESNO | MB_ICONQUESTION) == IDYES)
         PostQuitMessage(0);
 }
 
 void CProcessAssistantDlg::OnClose()
 {
     ShowWindow(SW_HIDE);
-    strcpy(nid.szInfoTitle, "进程助手已隐藏到通知栏");//气泡标题
-    strcpy(nid.szInfo, "我将在这里检查主人设置的程序是否在运行，如果您关机的"
+    strcpy(m_nid.szInfoTitle, "进程助手已隐藏到通知栏");//气泡标题
+    strcpy(m_nid.szInfo, "我将在这里检查主人设置的程序是否在运行，如果您关机的"
            "时候没有关闭他们，我将在下次开机时为主人打开他们哦");//气泡内容
-    Shell_NotifyIcon(NIM_MODIFY, &nid);
+    Shell_NotifyIcon(NIM_MODIFY, &m_nid);
 }
 
 LRESULT CProcessAssistantDlg::OnNotifyIconMsg(WPARAM wParam, LPARAM lParam)
@@ -283,34 +287,38 @@ bool CProcessAssistantDlg::isProcessExist(CString name)
 
 void CProcessAssistantDlg::showProcessList()
 {
-    loadTaskFileList();
-    loadTaskMgrList();
+    loadListFromTaskFile();
+    loadListFromTaskMgr();
 }
 
-void CProcessAssistantDlg::loadTaskFileList()
+void CProcessAssistantDlg::loadListFromTaskFile()
 {
-    ifstream fin(m_myPath + "AutoRunProcessList.txt");
+    m_listCnt = 0;
+    ifstream fin(m_checkedListFile);
     if (fin.is_open()){
         string process;
         while (getline(fin, process)){
+            if (process == "" || !PathFileExists(process.c_str()))
+                break;
             HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), process.c_str(), 0);
-            int indexIcon = m_imgList.Add(hIcon);
-            CString exeName = process.substr(process.rfind('\\') + 1).c_str();
-            int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
+            int indexIcon = m_iconList.Add(hIcon);
+            CString exeName = process.substr(process.rfind('\\') + 1).c_str(); //仅得到文件名
+            int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon);
             m_wndList.SetItemText(item, 1, process.c_str());
             m_wndList.SetCheck(item);
             if (isProcessExist(process.c_str()))
                 m_wndList.SetItemText(item, 2, "运行中");
-            m_processListMap[process.c_str()] = exeName; //存入map
+            m_processList.insert(process.c_str()); //存入map
             m_processIndexMap[process.c_str()] = m_listCnt - 1;
-            m_runList.insert(process.c_str());
+            m_checkedList.insert(process.c_str());
         }
     }
     fin.close();
 }
 
-void CProcessAssistantDlg::loadTaskMgrList()
+void CProcessAssistantDlg::loadListFromTaskMgr()
 {
+    m_listCnt = m_wndList.GetItemCount();
     static char myName[MAX_PATH] = { 0 }; //本程序的进程名
     static int unused1 = GetModuleFileName(NULL, myName, MAX_PATH);
     static char unused2 = myName[0] = toupper(myName[0]); //避免盘符大小写不识别问题
@@ -328,21 +336,21 @@ void CProcessAssistantDlg::loadTaskMgrList()
             char exePath[255];
             GetModuleFileNameEx(hd, NULL, exePath, 255);
             exePath[0] = toupper(exePath[0]); //避免盘符大小写不识别问题
-            if (m_processListMap.find(exePath) == m_processListMap.end()){
+            if (m_processList.count(exePath) == 0){
                 //获得程序图标
                 HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), exePath, 0);
                 if (hIcon != NULL){
                     CString path = exePath, exeName = path.Right(path.GetLength() - path.ReverseFind('\\') - 1);
                     if (path == myName || path.Find("system32") != -1 || path.Find("SysWOW64") != -1)
                         continue;
-                    int indexIcon = m_imgList.Add(hIcon);
+                    int indexIcon = m_iconList.Add(hIcon);
                     int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
                     m_wndList.SetItemText(item, 1, exePath);
                     m_wndList.SetItemText(item, 2, "运行中");
-                    m_processListMap[exePath] = exeName; //存入map
+                    m_processList.insert(exePath); //存入该记录
                     m_processIndexMap[exePath] = m_listCnt - 1;
+                    DestroyIcon(hIcon); //销毁图标
                 }
-                DestroyIcon(hIcon); //销毁图标
             }
             CloseHandle(hd);
         }
@@ -352,68 +360,67 @@ void CProcessAssistantDlg::loadTaskMgrList()
 
 void CProcessAssistantDlg::openUnclosedProcess()
 {
-    ifstream fin(m_autoRunFile);
+    ifstream fin(m_autoRunListFile);
     if (fin.is_open()){
         string process;
         while (getline(fin, process)){
             if (!isProcessExist(process.c_str())){
                 if ((int)ShellExecute(0, "open", process.c_str(), 0, 0, SW_SHOW) < 32){
                     CString err;
-                    err.Format("打开%s失败!lastError:%d", process.c_str(),
+                    err.Format("打开%s失败! lastError:%d", process.c_str(),
                                GetLastError());
-                    MessageBox(err, "失败提示");
+                    MessageBox(err, "失败提示", MB_ICONERROR);
                 }
             }
         }
     }
     fin.close();
-    DeleteFile(m_autoRunFile);
+    DeleteFile(m_autoRunListFile);
 }
 
 void CProcessAssistantDlg::updateProcessList()
 {
     //删除已退出的进程的行和记录
-    for (auto it = m_processListMap.begin(); it != m_processListMap.end();){
+    for (auto it = m_processList.begin(); it != m_processList.end();){
         auto itTmp = it++;
-        CString path = itTmp->first;
-        if (!isProcessExist(itTmp->second)){ //该进程已不存在
-            if (m_runList.count(itTmp->first) == 0){ //不在自启动列表中,则需要删除
-                for (auto& elem : m_processIndexMap)  //将该进程下面的进程序号减一
-                    if (elem.second > m_processIndexMap[path])
+        CString path = *itTmp; //当前记录的全路径
+        int idx = m_processIndexMap[path]; //当前记录所在行的索引
+        if (!isProcessExist(path)){ //该进程已不存在
+            if (m_checkedList.count(path) == 0){ //不在自启动列表中,则需要删除
+                for (auto& elem : m_processIndexMap) //将该进程下面的进程序号减一
+                    if (elem.second > idx)
                         --elem.second;
-                m_wndList.DeleteItem(m_processIndexMap[path]); //删除行
+                m_wndList.DeleteItem(idx); //删除行
                 m_processIndexMap.erase(m_processIndexMap.find(path));
-                m_processListMap.erase(itTmp); //从进程列表映射表中删除
-            }
-            else{ //进程不存在但在自启动列表中,只需要将状态修改
-                if (m_wndList.GetItemText(m_processIndexMap[path], 2) != "")
-                    m_wndList.SetItemText(m_processIndexMap[path], 2, "");
-            }
+                m_processList.erase(itTmp); //从进程列表映射表中删除
+            } //进程不存在但在自启动列表中,只需要将状态修改
+            else if (m_wndList.GetItemText(idx, 2) != "")
+                m_wndList.SetItemText(idx, 2, "");
         }
-        else{ //在自启动列表中的进程已上线
-            int item = m_processIndexMap[path];
-            if (m_wndList.GetItemText(item, 2) != "运行中")
-                m_wndList.SetItemText(item, 2, "运行中");
+        else if (m_checkedList.count(path) != 0){ //在自启动列表中
+            if (m_wndList.GetItemText(idx, 2) != "运行中")
+                m_wndList.SetItemText(idx, 2, "运行中");
         }
     }
     //载入任务管理器中的任务列表
-    loadTaskMgrList();
+    loadListFromTaskMgr();
     //将正在运行的需要自启动的进程保存到文件中,以供下次开机可自动打开
-    CString lists;
+    CString listsToRun;
     static CString lastLists;
-    for (auto& elem : m_runList)
+    for (auto& elem : m_checkedList)
         if (isProcessExist(elem))
-            lists += elem + "\n";
-    if (lists.IsEmpty())
-        DeleteFile(m_autoRunFile);
-    else if (lists != lastLists){
-        ofstream fout(m_autoRunFile);
-        fout << lists;
-        fout.close();
+            listsToRun += elem + "\n";
+    if (listsToRun != lastLists){
+        if (listsToRun.IsEmpty())
+            DeleteFile(m_autoRunListFile);
+        else{
+            ofstream fout(m_autoRunListFile);
+            fout << listsToRun;
+            fout.close();
+        }
+        lastLists = listsToRun;
     }
-    lastLists = lists;
 }
-
 
 
 ///另一种获取进程列表的方式
@@ -422,16 +429,14 @@ void CProcessAssistantDlg::updateProcessList()
 void enumProcesses()
 {
     int cnt = 0;
-    DWORD PID[1024];
-    DWORD needed;
-    EnumProcesses(PID, sizeof(PID), &needed);
-    DWORD NumProcess = needed / sizeof(DWORD);
+    DWORD pid[1024], needed;
+    EnumProcesses(pid, sizeof(pid), &needed);
+    DWORD numProcess = needed / sizeof(DWORD);
     char exePath[MAX_PATH];
-
-    for (DWORD i = 0, cnt = 0; i < NumProcess; i++, cnt++)
+    for (DWORD i = 0; i < numProcess; i++)
     {
-        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, PID[i]);
-        if (hProcess)
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid[i]);
+        if (hProcess != NULL)
         {
             GetModuleFileNameEx(hProcess, NULL, exePath, sizeof(exePath));
             HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), exePath, 0); //获得程序图标
