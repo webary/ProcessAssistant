@@ -9,7 +9,7 @@
 
 #include <tlhelp32.h>
 #include <psapi.h>
-#pragma comment(lib,"Psapi.lib")
+#pragma comment(lib,"psapi.lib")
 
 #include <fstream>
 #include <string>
@@ -92,7 +92,7 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     m_wndList.SetImageList(&m_imgList, LVSIL_SMALL);
 
     SetTimer(0, 100, NULL);  //检查当前任务管理器中的进程,并添加启动项
-    SetTimer(1, 1000, NULL); //查看监测的进程是否在运行
+    SetTimer(1, 4000, NULL); //查看监测的进程是否在运行
     openUnclosedProcess();   //打开上次关机时未关闭的进程
 
     //设置托盘消息 - 必须在这里赋值，如果在构造函数赋值，鼠标指向托盘图标后即消失
@@ -210,11 +210,15 @@ void CProcessAssistantDlg::OnBnClickedBtSet()
 void CProcessAssistantDlg::OnOpenMainDlg()
 {
     ShowWindow(SW_SHOW);
+    SetFocus();
 }
 
 void CProcessAssistantDlg::OnExitMe()
 {
-    PostQuitMessage(0);
+    OnOpenMainDlg();
+    if (MessageBox("退出后将不能检测指定程序的运行状态，可能无法完成下次开机后"
+        "打开上次未关闭的进程。你确定要退出么？", "退出提醒", MB_YESNO) == IDYES)
+        PostQuitMessage(0);
 }
 
 void CProcessAssistantDlg::OnClose()
@@ -235,12 +239,11 @@ LRESULT CProcessAssistantDlg::OnNotifyIconMsg(WPARAM wParam, LPARAM lParam)
             if (pMenu.LoadMenu(IDR_MENU1)) {
                 CMenu* pPopup = pMenu.GetSubMenu(0);
                 GetCursorPos(&Point);
-                SetForegroundWindow();
                 pPopup->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, Point.x, Point.y, this);
             }
             break;
         case WM_LBUTTONDBLCLK:
-            this->ShowWindow(SW_SHOW);
+            OnOpenMainDlg();
             break;
         default:
             break;
@@ -325,20 +328,22 @@ void CProcessAssistantDlg::loadTaskMgrList()
             char exePath[255];
             GetModuleFileNameEx(hd, NULL, exePath, 255);
             exePath[0] = toupper(exePath[0]); //避免盘符大小写不识别问题
-            //获得程序图标
-            HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), exePath, 0);
-            if (hIcon != NULL && m_processListMap.find(exePath) == m_processListMap.end()){
-                CString path = exePath, exeName = path.Right(path.GetLength() - path.ReverseFind('\\') - 1);
-                if (path == myName || path.Find("system32") != -1 || path.Find("SysWOW64") != -1)
-                    continue;
-                int indexIcon = m_imgList.Add(hIcon);
-                int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
-                m_wndList.SetItemText(item, 1, exePath);
-                m_wndList.SetItemText(item, 2, "运行中");
-                m_processListMap[exePath] = exeName; //存入map
-                m_processIndexMap[exePath] = m_listCnt - 1;
+            if (m_processListMap.find(exePath) == m_processListMap.end()){
+                //获得程序图标
+                HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), exePath, 0);
+                if (hIcon != NULL){
+                    CString path = exePath, exeName = path.Right(path.GetLength() - path.ReverseFind('\\') - 1);
+                    if (path == myName || path.Find("system32") != -1 || path.Find("SysWOW64") != -1)
+                        continue;
+                    int indexIcon = m_imgList.Add(hIcon);
+                    int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
+                    m_wndList.SetItemText(item, 1, exePath);
+                    m_wndList.SetItemText(item, 2, "运行中");
+                    m_processListMap[exePath] = exeName; //存入map
+                    m_processIndexMap[exePath] = m_listCnt - 1;
+                }
+                DestroyIcon(hIcon); //销毁图标
             }
-            DestroyIcon(hIcon); //销毁图标
             CloseHandle(hd);
         }
     }
@@ -385,31 +390,28 @@ void CProcessAssistantDlg::updateProcessList()
                     m_wndList.SetItemText(m_processIndexMap[path], 2, "");
             }
         }
-    }
-    //更新每个进程的状态
-    m_listCnt = m_wndList.GetItemCount();
-    for (int i = 0; i < m_listCnt; ++i){
-        if (isProcessExist(m_wndList.GetItemText(i, 1))){
-            if (m_wndList.GetItemText(i, 2) != "运行中")
-                m_wndList.SetItemText(i, 2, "运行中");
+        else{ //在自启动列表中的进程已上线
+            int item = m_processIndexMap[path];
+            if (m_wndList.GetItemText(item, 2) != "运行中")
+                m_wndList.SetItemText(item, 2, "运行中");
         }
-        else if (m_wndList.GetItemText(i, 2) != "")
-            m_wndList.SetItemText(i, 2, "");
     }
     //载入任务管理器中的任务列表
     loadTaskMgrList();
     //将正在运行的需要自启动的进程保存到文件中,以供下次开机可自动打开
     CString lists;
+    static CString lastLists;
     for (auto& elem : m_runList)
         if (isProcessExist(elem))
             lists += elem + "\n";
-    if (lists != ""){
+    if (lists.IsEmpty())
+        DeleteFile(m_autoRunFile);
+    else if (lists != lastLists){
         ofstream fout(m_autoRunFile);
         fout << lists;
         fout.close();
     }
-    else
-        DeleteFile(m_autoRunFile);
+    lastLists = lists;
 }
 
 
