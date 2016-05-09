@@ -49,6 +49,7 @@ protected:
     CString m_autoRunListFile;  //保存需要自动运行的进程列表的文件
     NOTIFYICONDATA m_nid;       //通知栏消息的结构体变量
     HANDLE m_hmutex;            //保证最多只有一个实例在运行的互斥锁
+    void *pMapRunning;          //指向共享内存区的指针
 
 public:
     bool isProcessExist(CString name); //判断指定进程是否存在(即是否已打开该程序)

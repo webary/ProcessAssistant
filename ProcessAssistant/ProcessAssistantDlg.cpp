@@ -34,6 +34,8 @@ CProcessAssistantDlg::CProcessAssistantDlg(CWnd* pParent /*=NULL*/)
 
     m_autoRunListFile = m_myPath + "autorun.dat";
     m_checkedListFile = m_myPath + "checkedList.dat";
+
+    pMapRunning = NULL;
 }
 
 CProcessAssistantDlg::~CProcessAssistantDlg()
@@ -66,6 +68,55 @@ BEGIN_MESSAGE_MAP(CProcessAssistantDlg, CDialog)
     ON_NOTIFY(NM_DBLCLK, IDC_LIST_PROCESS, &CProcessAssistantDlg::OnDblclkListProcess)
 END_MESSAGE_MAP()
 
+///利用共享内存方式实现进程通信。共享内存实际就是文件映射的一种特殊情况
+
+//创建文件映射，相当于创建通信信道.创建成功返回0
+int createMyFileMap(void* &lp, size_t size, const char* str)
+{
+    HANDLE h = CreateFileMapping((HANDLE)0xFFFFFFFF, 0, PAGE_READWRITE, 0, size, str);
+    if (h == NULL)
+    {
+        MessageBox(0, "Create File Mapping Faild", str, 0);
+        return -1;
+    }
+    lp = MapViewOfFile(h, FILE_MAP_WRITE, 0, 0, size);
+    if (lp == NULL)
+    {
+        MessageBox(0, "View MapFile Faild-c", str, 0);
+        return -2;
+    }
+    return 0;
+}
+
+//打开文件映射，相当于访问信道。打开成功访问0
+int openMyFileMap(void* &lp, size_t size, const char* str, bool showBox = 1)
+{
+    HANDLE h = OpenFileMapping(FILE_MAP_READ | FILE_MAP_WRITE, 0, str);
+    if (h == NULL)
+    {
+        if (showBox) MessageBox(0, "Open File Mapping Faild", str, 0);
+        return -1;
+    }
+    lp = MapViewOfFile(h, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, size);
+    if (lp == NULL)
+    {
+        if (showBox) MessageBox(0, "View MapFile Faild-o", str, 0);
+        return -2;
+    }
+    return 0;
+}
+
+//设置文件映射，相当于向信道传送消息
+template<typename T_Set>
+int setMyFileMap(void* &lp, size_t size, const T_Set* pValue)
+{
+    if (lp == 0 || pValue == 0 || size == 0)
+        return -1;
+    memcpy(lp, pValue, size);
+    return 0;
+}
+
+//更新进程列表线程的函数
 void updateListThread(void * _pDlg)
 {
     CProcessAssistantDlg* pDlg = static_cast<CProcessAssistantDlg*>(_pDlg);
@@ -74,6 +125,7 @@ void updateListThread(void * _pDlg)
         pDlg->updateProcessList();
     }
 }
+
 // CProcessAssistantDlg 消息处理程序
 
 BOOL CProcessAssistantDlg::OnInitDialog()
@@ -81,11 +133,17 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     //利用互斥锁机制保证最多只有一个该实例正在运行
     m_hmutex = ::CreateMutex(NULL, true, "ProcessAssistant");
     if (ERROR_ALREADY_EXISTS == GetLastError()) { //若互斥锁已存在则直接关闭
+        if (0 == openMyFileMap(pMapRunning, 1024, "NewInstance", 0)){
+            int val = 1;
+            setMyFileMap(pMapRunning, 4, &val);
+        }
         MessageBox("请不要重复打开该程序哦，我的前身还在通知栏运行着呢^ _ ^",
                    0, MB_ICONWARNING);
         OnCancel();
         return FALSE;
     }
+    createMyFileMap(pMapRunning, 4, "NewInstance"); //创建共享内存
+
     CDialog::OnInitDialog();
     // 设置此对话框的图标。当应用程序主窗口不是对话框时，框架将自动执行此操作
     SetIcon(m_hIcon, TRUE);			// 设置大图标
@@ -103,7 +161,8 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     m_iconList.Create(32, 32, ILC_COLOR32, 0, 100);
     m_wndList.SetImageList(&m_iconList, LVSIL_SMALL);
 
-    SetTimer(0, 100, NULL);  //显示进程列表,打开上次未关闭的进程,并添加启动项
+    SetTimer(0, 100, NULL); //显示进程列表,打开上次未关闭的进程,并添加启动项
+    SetTimer(1, 500, NULL);
 
     _beginthread(updateListThread, 0, this); //开启后台线程定期监测相应进程是否在运行
 
@@ -181,6 +240,17 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
                            "对应进程！", "开启提示", MB_ICONINFORMATION);
             }
             openUnclosedProcess(); //打开上次关机时未关闭的进程
+            break;
+        }
+        case 1:
+        {
+            if (pMapRunning && *(int*)pMapRunning == 1){
+                int val = 0;
+                setMyFileMap(pMapRunning, 4, &val);
+                strcpy(m_nid.szInfoTitle, "温馨提示");//气泡标题
+                strcpy(m_nid.szInfo, "主人，我还在这里运行着呢，快来点我吧");
+                Shell_NotifyIcon(NIM_MODIFY, &m_nid);
+            }
             break;
         }
         default:

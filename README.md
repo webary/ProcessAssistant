@@ -20,8 +20,9 @@ win8.1, visual studio 2013, MFC
 9. open the appointed process automatically when the computer startup  
 10. add global and local hotkey to make some functions convenient  
 11. add notify icon and message  
+12. add communication with process of another instance by shared memory  
   
-  
+</br>
 <hr>
 ##中文说明：  
 
@@ -43,3 +44,4 @@ win8.1, visual studio 2013, MFC
 9. 当电脑开机后自动打开用户指定的并且上次未关闭的进程  
 10. 增加全局快捷键和局部快捷键,让一些功能操作更方便  
 11. 增加通知栏图标和菜单消息  
+12. 利用共享内存方式实现进程通信,如果重复打开了该程序,将给第一次打开的进程发送消息  
