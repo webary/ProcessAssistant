@@ -32,6 +32,7 @@ protected:
     afx_msg void OnClose();        //对话框的关闭消息
     afx_msg LRESULT OnNotifyIconMsg(WPARAM wParam, LPARAM lParam);//处理通知栏消息
     afx_msg void OnDblclkListProcess(NMHDR *pNMHDR, LRESULT *pResult); //双击消息
+    afx_msg void OnHotKey(UINT nHotKeyId, UINT nKey1, UINT nKey2); //响应快捷键消息
     DECLARE_MESSAGE_MAP()
 
 protected:

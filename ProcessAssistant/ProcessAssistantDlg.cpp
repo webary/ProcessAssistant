@@ -50,6 +50,7 @@ void CProcessAssistantDlg::DoDataExchange(CDataExchange* pDX)
 
 
 #define WM_NOTIFYICONMSG WM_USER + 1 //托盘消息
+#define ID_HK_OPEN_MAIN_DLG 0 //全局快捷键-打开主窗口的ID
 
 BEGIN_MESSAGE_MAP(CProcessAssistantDlg, CDialog)
     ON_WM_PAINT()
@@ -62,9 +63,17 @@ BEGIN_MESSAGE_MAP(CProcessAssistantDlg, CDialog)
     ON_COMMAND(ID_OPEN_MAIN_DLG, &CProcessAssistantDlg::OnOpenMainDlg)
     ON_COMMAND(ID_EXIT_ME, &CProcessAssistantDlg::OnExitMe)
     ON_NOTIFY(NM_DBLCLK, IDC_LIST_PROCESS, &CProcessAssistantDlg::OnDblclkListProcess)
+    ON_WM_HOTKEY()
 END_MESSAGE_MAP()
 
-
+void updateListThread(void * _pDlg)
+{
+    CProcessAssistantDlg* pDlg = static_cast<CProcessAssistantDlg*>(_pDlg);
+    while (pDlg){
+        Sleep(3000);
+        pDlg->updateProcessList();
+    }
+}
 // CProcessAssistantDlg 消息处理程序
 
 BOOL CProcessAssistantDlg::OnInitDialog()
@@ -95,7 +104,8 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     m_wndList.SetImageList(&m_iconList, LVSIL_SMALL);
 
     SetTimer(0, 100, NULL);  //显示进程列表,打开上次未关闭的进程,并添加启动项
-    SetTimer(1, 3000, NULL); //查看监测的进程是否在运行
+    
+    _beginthread(updateListThread, 0, this); //开启后台线程定期监测相应进程是否在运行
 
     //设置托盘消息 - 必须在这里赋值,如果在构造函数赋值,鼠标指向托盘图标后即消失
     m_nid.cbSize = sizeof(NOTIFYICONDATA);
@@ -110,6 +120,9 @@ BOOL CProcessAssistantDlg::OnInitDialog()
            "主窗口的关闭，我还会一直在这里运行着，如果真的想关闭我，"
            "可以右键单击我，然后选择退出");//气泡内容
     Shell_NotifyIcon(NIM_ADD, &m_nid);
+
+    //设置全局快捷键-打开主窗口
+    RegisterHotKey(GetSafeHwnd(), ID_HK_OPEN_MAIN_DLG, MOD_CONTROL | MOD_SHIFT, 'D');
 
     return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -168,11 +181,6 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
                            "对应进程！", "开启提示", MB_ICONINFORMATION);
             }
             openUnclosedProcess(); //打开上次关机时未关闭的进程
-            break;
-        }
-        case 1: //每隔一定时间会执行一次, 查看监测的进程是否在运行
-        {
-            updateProcessList();
             break;
         }
         default:
@@ -262,6 +270,13 @@ void CProcessAssistantDlg::OnDblclkListProcess(NMHDR *pNMHDR, LRESULT *pResult)
     if (item >= 0 && item <= m_wndList.GetItemCount())
         m_wndList.SetCheck(item, !m_wndList.GetCheck(item));
     *pResult = 0;
+}
+
+void CProcessAssistantDlg::OnHotKey(UINT nHotKeyId, UINT nKey1, UINT nKey2)
+{
+    if (nHotKeyId == ID_HK_OPEN_MAIN_DLG)
+        OnOpenMainDlg();
+    CDialog::OnHotKey(nHotKeyId, nKey1, nKey2);
 }
 
 // CProcessAssistantDlg 自定义函数
@@ -383,21 +398,20 @@ void CProcessAssistantDlg::updateProcessList()
     //删除已退出的进程的行和记录
     for (auto it = m_processList.begin(); it != m_processList.end();){
         auto itTmp = it++;
-        CString path = *itTmp; //当前记录的全路径
-        int idx = m_processIndexMap[path]; //当前记录所在行的索引
-        if (!isProcessExist(path)){ //该进程已不存在
-            if (m_checkedList.count(path) == 0){ //不在自启动列表中,则需要删除
+        int idx = m_processIndexMap[*itTmp]; //当前记录所在行的索引
+        if (!isProcessExist(*itTmp)){ //该进程已不存在
+            if (m_checkedList.count(*itTmp) == 0){ //不在自启动列表中,则需要删除
                 for (auto& elem : m_processIndexMap) //将该进程下面的进程序号减一
                     if (elem.second > idx)
                         --elem.second;
                 m_wndList.DeleteItem(idx); //删除行
-                m_processIndexMap.erase(m_processIndexMap.find(path));
+                m_processIndexMap.erase(m_processIndexMap.find(*itTmp));
                 m_processList.erase(itTmp); //从进程列表映射表中删除
             } //进程不存在但在自启动列表中,只需要将状态修改
             else if (m_wndList.GetItemText(idx, 2) != "")
                 m_wndList.SetItemText(idx, 2, "");
         }
-        else if (m_checkedList.count(path) != 0){ //在自启动列表中
+        else if (m_checkedList.count(*itTmp) != 0){ //在自启动列表中
             if (m_wndList.GetItemText(idx, 2) != "运行中")
                 m_wndList.SetItemText(idx, 2, "运行中");
         }
