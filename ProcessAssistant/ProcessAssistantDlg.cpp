@@ -57,13 +57,13 @@ BEGIN_MESSAGE_MAP(CProcessAssistantDlg, CDialog)
     ON_WM_QUERYDRAGICON()
     ON_WM_TIMER()
     ON_WM_CLOSE()
+    ON_WM_HOTKEY()
     ON_MESSAGE(WM_NOTIFYICONMSG, OnNotifyIconMsg)
     ON_BN_CLICKED(IDOK, &CProcessAssistantDlg::OnBnClickedOk)
     ON_BN_CLICKED(IDC_BT_SET, &CProcessAssistantDlg::OnBnClickedBtSet)
     ON_COMMAND(ID_OPEN_MAIN_DLG, &CProcessAssistantDlg::OnOpenMainDlg)
     ON_COMMAND(ID_EXIT_ME, &CProcessAssistantDlg::OnExitMe)
     ON_NOTIFY(NM_DBLCLK, IDC_LIST_PROCESS, &CProcessAssistantDlg::OnDblclkListProcess)
-    ON_WM_HOTKEY()
 END_MESSAGE_MAP()
 
 void updateListThread(void * _pDlg)
@@ -104,7 +104,7 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     m_wndList.SetImageList(&m_iconList, LVSIL_SMALL);
 
     SetTimer(0, 100, NULL);  //显示进程列表,打开上次未关闭的进程,并添加启动项
-    
+
     _beginthread(updateListThread, 0, this); //开启后台线程定期监测相应进程是否在运行
 
     //设置托盘消息 - 必须在这里赋值,如果在构造函数赋值,鼠标指向托盘图标后即消失
@@ -277,6 +277,17 @@ void CProcessAssistantDlg::OnHotKey(UINT nHotKeyId, UINT nKey1, UINT nKey2)
     if (nHotKeyId == ID_HK_OPEN_MAIN_DLG)
         OnOpenMainDlg();
     CDialog::OnHotKey(nHotKeyId, nKey1, nKey2);
+}
+
+BOOL CProcessAssistantDlg::PreTranslateMessage(MSG* pMsg)
+{
+    static HACCEL hAccel = LoadAccelerators(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDR_ACCELERATOR1));
+    if (WM_KEYFIRST <= pMsg->message && pMsg->message <= WM_KEYLAST)
+    {
+        if (hAccel && TranslateAccelerator(m_hWnd, hAccel, pMsg))
+            return TRUE;
+    }
+    return CDialog::PreTranslateMessage(pMsg);
 }
 
 // CProcessAssistantDlg 自定义函数
