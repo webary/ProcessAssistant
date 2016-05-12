@@ -29,11 +29,11 @@ CProcessAssistantDlg::CProcessAssistantDlg(CWnd* pParent /*=NULL*/)
 
     char path[MAX_PATH] = "";
     GetTempPath(MAX_PATH, path);
-    CString m_myPath = path + CString("ProcessAssistant\\");
-    CreateDirectory(m_myPath, 0); //在临时文件夹中创建本应用的文件夹
+    CString myPath = path + CString("ProcessAssistant\\");
+    CreateDirectory(myPath, 0); //在临时文件夹中创建本应用的文件夹
 
-    m_autoRunListFile = m_myPath + "autorun.dat";
-    m_checkedListFile = m_myPath + "checkedList.dat";
+    m_autoRunListFile = myPath + "autorun.dat";
+    m_checkedListFile = myPath + "checkedList.dat";
 
     pMapRunning = NULL;
 }
@@ -79,7 +79,7 @@ int createMyFileMap(void* &lp, size_t size, const char* str)
         MessageBox(0, "Create File Mapping Faild", str, 0);
         return -1;
     }
-    lp = MapViewOfFile(h, FILE_MAP_WRITE, 0, 0, size);
+    lp = MapViewOfFile(h, FILE_MAP_WRITE | FILE_MAP_READ, 0, 0, size);
     if (lp == NULL)
     {
         MessageBox(0, "View MapFile Faild-c", str, 0);
@@ -133,7 +133,7 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     //利用互斥锁机制保证最多只有一个该实例正在运行
     m_hmutex = ::CreateMutex(NULL, true, "ProcessAssistant");
     if (ERROR_ALREADY_EXISTS == GetLastError()) { //若互斥锁已存在则直接关闭
-        if (0 == openMyFileMap(pMapRunning, 1024, "NewInstance", 0)){
+        if (0 == openMyFileMap(pMapRunning, 4, "NewInstance", 0)){
             int val = 1;
             setMyFileMap(pMapRunning, 4, &val);
         }
@@ -150,13 +150,13 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     SetIcon(m_hIcon, FALSE);		// 设置小图标
 
     //整行选定 + 显示表格线 + 复选框 + 扁平滚动条
-    m_wndList.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_CHECKBOXES | LVS_EX_FLATSB);
+    m_wndList.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_CHECKBOXES | LVS_EX_FLATSB);
     //设置表头
     m_wndList.InsertColumn(0, "(开启)   进程名", 0, 124);
     m_wndList.InsertColumn(1, "文件位置", 0, 415);
     m_wndList.InsertColumn(2, "备注", 0, 50);
     //设置文本显示颜色
-    m_wndList.SetTextColor(RGB(0, 255, 0));
+    m_wndList.SetTextColor(RGB(0, 0, 0));
     //设置图标列表
     m_iconList.Create(32, 32, ILC_COLOR32, 0, 100);
     m_wndList.SetImageList(&m_iconList, LVSIL_SMALL);
@@ -175,12 +175,12 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     m_nid.uCallbackMessage = WM_NOTIFYICONMSG;
     strcpy(m_nid.szTip, "进程助手");
     strcpy(m_nid.szInfoTitle, "进程助手已驻扎在通知栏");//气泡标题
-    strcpy(m_nid.szInfo, "我将在这里检查主人设置的程序是否在运行，您可以点击"
-           "主窗口的关闭，我还会一直在这里运行着，如果真的想关闭我，"
-           "可以右键单击我，然后选择退出");//气泡内容
+    strcpy(m_nid.szInfo, "我将在这里检查主人设置的程序是否在运行，如果您关机的"
+           "时候没有关闭他们，我将在下次开机时为主人打开他们哦，您可以点击"
+           "主窗口的关闭，但我还会一直在这里运行着");//气泡内容
     Shell_NotifyIcon(NIM_ADD, &m_nid);
 
-    //设置全局快捷键-打开主窗口
+    //设置全局快捷键: Ctrl+Shift+D 打开主窗口
     RegisterHotKey(GetSafeHwnd(), ID_HK_OPEN_MAIN_DLG, MOD_CONTROL | MOD_SHIFT, 'D');
 
     return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
@@ -307,8 +307,8 @@ void CProcessAssistantDlg::OnClose()
 {
     ShowWindow(SW_HIDE);
     strcpy(m_nid.szInfoTitle, "进程助手已隐藏到通知栏");//气泡标题
-    strcpy(m_nid.szInfo, "我将在这里检查主人设置的程序是否在运行，如果您关机的"
-           "时候没有关闭他们，我将在下次开机时为主人打开他们哦");//气泡内容
+    strcpy(m_nid.szInfo, "我将在这里检查主人设置的程序是否在运行，如果真的"
+           "想关闭我，可以右键单击我，然后选择退出");//气泡内容
     Shell_NotifyIcon(NIM_MODIFY, &m_nid);
 }
 
@@ -426,6 +426,7 @@ void CProcessAssistantDlg::loadListFromTaskMgr()
         return;
     }
     PROCESSENTRY32 pe32 = { sizeof(pe32) };
+    //遍历快照中所有的进程的信息，并将当前的信息保存到变量pe32中
     for (BOOL find = Process32First(hp, &pe32); find != 0; find = Process32Next(hp, &pe32)) {
         HANDLE hd = OpenProcess(PROCESS_ALL_ACCESS, 0, pe32.th32ProcessID);
         if (hd != NULL) {
@@ -435,10 +436,13 @@ void CProcessAssistantDlg::loadListFromTaskMgr()
             if (m_processList.count(exePath) == 0){
                 //获得程序图标
                 HICON hIcon = ExtractIcon(AfxGetInstanceHandle(), exePath, 0);
-                if (hIcon != NULL){
-                    CString path = exePath, exeName = path.Right(path.GetLength() - path.ReverseFind('\\') - 1);
-                    if (path == myName || path.Find("system32") != -1 || path.Find("SysWOW64") != -1)
+                if (hIcon != NULL){ //路径有效并且有图标
+                    CString path = exePath, exeName = pe32.szExeFile;
+                    if (path == myName || path.Find("system32") != -1 || path.Find("SysWOW64") != -1){
+                        DestroyIcon(hIcon); //销毁图标
+                        CloseHandle(hd);
                         continue;
+                    }
                     int indexIcon = m_iconList.Add(hIcon);
                     int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
                     m_wndList.SetItemText(item, 1, exePath);

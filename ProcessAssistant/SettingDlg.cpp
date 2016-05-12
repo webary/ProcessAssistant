@@ -51,12 +51,12 @@ void SettingDlg::setStartup(bool enable)
     //判断是否有开机启动项，如果没有则添加
     static LPCTSTR lpRun = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     HKEY hKey;
-    long lRet = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lpRun, 0, KEY_WRITE | KEY_READ, &hKey);
+    long lRet = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lpRun, 0, KEY_WRITE | KEY_READ | KEY_WOW64_64KEY, &hKey);
     if (lRet == ERROR_SUCCESS)
     {
         if (enable){ //开启开机启动
-            static char myName[MAX_PATH] = { 0 };
-            static DWORD dwRet = GetModuleFileName(NULL, myName, MAX_PATH); //得到程序自身的全路径
+            static char myName[MAX_PATH] = { 0 }; //得到程序自身的全路径
+            static DWORD dwRet = GetModuleFileName(NULL, myName, MAX_PATH);
             lRet = RegSetValueEx(hKey, "ProcessAssistant", 0, REG_SZ, (BYTE*)myName, dwRet);
             if (lRet == ERROR_SUCCESS)
                 setOK = true;
@@ -81,11 +81,11 @@ bool SettingDlg::getStartup()
     bool setOK = false; //记录是否已有开机自启动
     static LPCTSTR lpRun = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     HKEY hKey;
-    long lRet = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lpRun, 0, KEY_WRITE | KEY_READ, &hKey);
+    long lRet = RegOpenKeyEx(HKEY_LOCAL_MACHINE, lpRun, 0, KEY_WRITE | KEY_READ | KEY_WOW64_64KEY, &hKey);
     if (lRet == ERROR_SUCCESS)
     {
-        static char myName[MAX_PATH] = { 0 };
-        static DWORD dwRet = GetModuleFileName(NULL, myName, MAX_PATH); //得到程序自身的全路径
+        static char myName[MAX_PATH] = { 0 }; //得到程序自身的全路径
+        static DWORD dwRet = GetModuleFileName(NULL, myName, MAX_PATH);
         char data[1000] = { 0 };
         DWORD dwType = REG_SZ, dwSize;
         RegQueryValueEx(hKey, "ProcessAssistant", 0, &dwType, (BYTE*)data, &dwSize);

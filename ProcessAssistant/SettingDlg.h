@@ -23,7 +23,7 @@ protected:
 public:
     virtual BOOL OnInitDialog();
     afx_msg void OnBnClickedSetOk();
+    afx_msg void OnBnClickedCheckOpenLastDir();
     void setStartup(bool enable);   //设置开机自启动状态
     bool getStartup();              //是否开启开机自启动
-    afx_msg void OnBnClickedCheckOpenLastDir();
 };
