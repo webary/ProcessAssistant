@@ -131,12 +131,13 @@ void updateListThread(void * _pDlg)
 BOOL CProcessAssistantDlg::OnInitDialog()
 {
     //利用互斥锁机制保证最多只有一个该实例正在运行
-    m_hmutex = ::CreateMutex(NULL, true, "ProcessAssistant");
+    m_hmutex = CreateMutex(NULL, true, "ProcessAssistant");
     if (ERROR_ALREADY_EXISTS == GetLastError()) { //若互斥锁已存在则直接关闭
         if (0 == openMyFileMap(pMapRunning, 4, "NewInstance", 0)){
             int val = 1;
             setMyFileMap(pMapRunning, 4, &val);
         }
+        SetTimer(2, 3000, NULL); //3秒后自动关闭
         MessageBox("请不要重复打开该程序哦，我的前身还在通知栏运行着呢^ _ ^",
                    0, MB_ICONWARNING);
         OnCancel();
@@ -251,6 +252,11 @@ void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
                 strcpy(m_nid.szInfo, "主人，我还在这里运行着呢，快来点我吧");
                 Shell_NotifyIcon(NIM_MODIFY, &m_nid);
             }
+            break;
+        }
+        case 2:
+        {
+            exit(-1);
             break;
         }
         default:
