@@ -32,8 +32,13 @@ protected:
     afx_msg void OnExitMe();       //任务栏菜单-退出
     afx_msg void OnClose();        //对话框的关闭消息
     afx_msg LRESULT OnNotifyIconMsg(WPARAM wParam, LPARAM lParam);//处理通知栏消息
-    afx_msg void OnDblclkListProcess(NMHDR *pNMHDR, LRESULT *pResult); //双击消息
     afx_msg void OnHotKey(UINT nHotKeyId, UINT nKey1, UINT nKey2); //响应快捷键消息
+    afx_msg void OnDblclkListProcess(NMHDR *pNMHDR, LRESULT *pResult); //双击消息
+    afx_msg void OnNM_RClickListProcess(NMHDR *pNMHDR, LRESULT *pResult); //右键单击消息
+    afx_msg void OnRClick_OpenDir();           //右键菜单-打开所在位置
+    afx_msg void OnRClick_StartProcess();      //右键菜单-打开该进程
+    afx_msg void OnRClick_EndProcess();        //右键菜单-结束该进程
+    afx_msg void OnRClick_CheckOrNotProcess(); //右键菜单-勾选/不勾选该进程
     DECLARE_MESSAGE_MAP()
 
 protected:
@@ -50,6 +55,7 @@ protected:
     NOTIFYICONDATA m_nid;       //通知栏消息的结构体变量
     HANDLE m_hmutex;            //保证最多只有一个实例在运行的互斥锁
     void *pMapRunning;          //指向共享内存区的指针
+    int m_selected;             //当前已选中的表项行索引
 
 public:
     bool isProcessExist(CString name); //判断指定进程是否存在(即是否已打开该程序)

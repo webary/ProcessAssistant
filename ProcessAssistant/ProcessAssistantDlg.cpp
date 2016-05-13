@@ -66,6 +66,11 @@ BEGIN_MESSAGE_MAP(CProcessAssistantDlg, CDialog)
     ON_COMMAND(ID_OPEN_MAIN_DLG, &CProcessAssistantDlg::OnOpenMainDlg)
     ON_COMMAND(ID_EXIT_ME, &CProcessAssistantDlg::OnExitMe)
     ON_NOTIFY(NM_DBLCLK, IDC_LIST_PROCESS, &CProcessAssistantDlg::OnDblclkListProcess)
+    ON_NOTIFY(NM_RCLICK, IDC_LIST_PROCESS, &CProcessAssistantDlg::OnNM_RClickListProcess)
+    ON_COMMAND(ID_OPEN_DIR, &CProcessAssistantDlg::OnRClick_OpenDir)
+    ON_COMMAND(ID_START_PROCESS, &CProcessAssistantDlg::OnRClick_StartProcess)
+    ON_COMMAND(ID_END_PROCESS, &CProcessAssistantDlg::OnRClick_EndProcess)
+    ON_COMMAND(ID_CHECK_OR_NOT_PROCESS, &CProcessAssistantDlg::OnRClick_CheckOrNotProcess)
 END_MESSAGE_MAP()
 
 ///利用共享内存方式实现进程通信。共享内存实际就是文件映射的一种特殊情况
@@ -187,6 +192,22 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
 
+BOOL CProcessAssistantDlg::PreTranslateMessage(MSG* pMsg)
+{
+    static HACCEL hAccel = LoadAccelerators(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDR_ACCELERATOR1));
+    if (WM_KEYFIRST <= pMsg->message && pMsg->message <= WM_KEYLAST)
+    {
+        if (hAccel && TranslateAccelerator(m_hWnd, hAccel, pMsg))
+            return TRUE;
+    }
+    return CDialog::PreTranslateMessage(pMsg);
+}
+
+HCURSOR CProcessAssistantDlg::OnQueryDragIcon()
+{
+    return static_cast<HCURSOR>(m_hIcon);
+}
+
 void CProcessAssistantDlg::OnPaint()
 {
     if (IsIconic())
@@ -210,11 +231,6 @@ void CProcessAssistantDlg::OnPaint()
     {
         CDialog::OnPaint();
     }
-}
-
-HCURSOR CProcessAssistantDlg::OnQueryDragIcon()
-{
-    return static_cast<HCURSOR>(m_hIcon);
 }
 
 void CProcessAssistantDlg::OnTimer(UINT_PTR nIDEvent)
@@ -320,23 +336,35 @@ void CProcessAssistantDlg::OnClose()
 
 LRESULT CProcessAssistantDlg::OnNotifyIconMsg(WPARAM wParam, LPARAM lParam)
 {
-    CPoint Point;
-    CMenu pMenu;//加载菜单
     switch (lParam) {
         case WM_RBUTTONDOWN: //如果按下鼠标右建
+        {
+            CMenu pMenu;//加载菜单
             if (pMenu.LoadMenu(IDR_MENU1)) {
+                CPoint pt;
+                GetCursorPos(&pt);
+                SetForegroundWindow();
                 CMenu* pPopup = pMenu.GetSubMenu(0);
-                GetCursorPos(&Point);
-                pPopup->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, Point.x, Point.y, this);
+                pPopup->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, pt.x, pt.y, this);
             }
             break;
+        }
         case WM_LBUTTONDBLCLK:
+        {
             OnOpenMainDlg();
             break;
+        }
         default:
             break;
     }
     return 0;
+}
+
+void CProcessAssistantDlg::OnHotKey(UINT nHotKeyId, UINT nKey1, UINT nKey2)
+{
+    if (nHotKeyId == ID_HK_OPEN_MAIN_DLG)
+        OnOpenMainDlg();
+    CDialog::OnHotKey(nHotKeyId, nKey1, nKey2);
 }
 
 void CProcessAssistantDlg::OnDblclkListProcess(NMHDR *pNMHDR, LRESULT *pResult)
@@ -348,22 +376,61 @@ void CProcessAssistantDlg::OnDblclkListProcess(NMHDR *pNMHDR, LRESULT *pResult)
     *pResult = 0;
 }
 
-void CProcessAssistantDlg::OnHotKey(UINT nHotKeyId, UINT nKey1, UINT nKey2)
+void CProcessAssistantDlg::OnNM_RClickListProcess(NMHDR *pNMHDR, LRESULT *pResult)
 {
-    if (nHotKeyId == ID_HK_OPEN_MAIN_DLG)
-        OnOpenMainDlg();
-    CDialog::OnHotKey(nHotKeyId, nKey1, nKey2);
+    LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+    m_selected = pNMItemActivate->iItem;
+    if (m_selected >= 0 && m_selected <= m_wndList.GetItemCount()){
+        int subIndex = (m_wndList.GetItemText(m_selected, 2) == "") ? 1 : 2;
+        CMenu pMenu; //加载菜单
+        if (pMenu.LoadMenu(IDR_MENU1)) {
+            CPoint pt;
+            GetCursorPos(&pt);
+            CMenu* pPopup = pMenu.GetSubMenu(subIndex);
+            pPopup->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, pt.x, pt.y, this);
+        }
+    }
+    *pResult = 0;
 }
 
-BOOL CProcessAssistantDlg::PreTranslateMessage(MSG* pMsg)
+void CProcessAssistantDlg::OnRClick_OpenDir()
 {
-    static HACCEL hAccel = LoadAccelerators(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDR_ACCELERATOR1));
-    if (WM_KEYFIRST <= pMsg->message && pMsg->message <= WM_KEYLAST)
-    {
-        if (hAccel && TranslateAccelerator(m_hWnd, hAccel, pMsg))
-            return TRUE;
+    CString path = m_wndList.GetItemText(m_selected, 1);
+    path = "/e,/select, " + path; //通过命令参数实现选定对应文件
+    ShellExecute(m_hWnd, "open", "explorer", path, 0, SW_SHOW); //打开文件夹
+}
+
+void CProcessAssistantDlg::OnRClick_StartProcess()
+{
+    CString path = m_wndList.GetItemText(m_selected, 1);
+    ShellExecute(m_hWnd, "open", path, 0, 0, SW_SHOW);
+    updateProcessList(); //主动刷新列表
+}
+
+void CProcessAssistantDlg::OnRClick_EndProcess()
+{
+    CString exeName = m_wndList.GetItemText(m_selected, 0) + ".exe";
+    HANDLE hd_ths = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hd_ths == INVALID_HANDLE_VALUE)
+        return;
+    PROCESSENTRY32 pe32 = { sizeof(pe32) };
+    //遍历快照中所有的进程的信息，并将当前的信息保存到变量pe32中
+    for (BOOL find = Process32First(hd_ths, &pe32); find != 0; find = Process32Next(hd_ths, &pe32)) {
+        if (pe32.szExeFile == exeName){
+            HANDLE hd_op = OpenProcess(PROCESS_ALL_ACCESS, 0, pe32.th32ProcessID);
+            TerminateProcess(hd_op, 0); //结束进程
+            CloseHandle(hd_op);
+            updateProcessList(); //主动刷新列表
+            break;
+        }
     }
-    return CDialog::PreTranslateMessage(pMsg);
+    CloseHandle(hd_ths);
+}
+
+void CProcessAssistantDlg::OnRClick_CheckOrNotProcess()
+{
+    if (m_selected >= 0 && m_selected <= m_wndList.GetItemCount())
+        m_wndList.SetCheck(m_selected, !m_wndList.GetCheck(m_selected));
 }
 
 // CProcessAssistantDlg 自定义函数
