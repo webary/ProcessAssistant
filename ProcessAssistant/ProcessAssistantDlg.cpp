@@ -126,7 +126,7 @@ void updateListThread(void * _pDlg)
 {
     CProcessAssistantDlg* pDlg = static_cast<CProcessAssistantDlg*>(_pDlg);
     while (pDlg){
-        Sleep(5000);
+        Sleep(3000);
         pDlg->updateProcessList();
     }
 }
@@ -158,9 +158,10 @@ BOOL CProcessAssistantDlg::OnInitDialog()
     //整行选定 + 显示表格线 + 复选框 + 扁平滚动条
     m_wndList.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_CHECKBOXES | LVS_EX_FLATSB);
     //设置表头
-    m_wndList.InsertColumn(0, "(开启)   进程名", 0, 124);
-    m_wndList.InsertColumn(1, "文件位置", 0, 415);
-    m_wndList.InsertColumn(2, "备注", 0, 50);
+    m_wndList.InsertColumn(0, "图标", 0, 50);
+    m_wndList.InsertColumn(1, "进程描述", 0, 167);
+    m_wndList.InsertColumn(2, "文件位置", 0, 360);
+    m_wndList.InsertColumn(3, "备注", 0, 50);
     //设置文本显示颜色
     m_wndList.SetTextColor(RGB(0, 0, 0));
     //设置图标列表
@@ -287,8 +288,8 @@ void CProcessAssistantDlg::OnBnClickedOk()
     ofstream fout(m_checkedListFile);
     for (int i = 0; i < m_wndList.GetItemCount(); ++i)
         if (m_wndList.GetCheck(i)){
-            fout << m_wndList.GetItemText(i, 1) << endl;
-            m_checkedList.insert(m_wndList.GetItemText(i, 1));
+            fout << m_wndList.GetItemText(i, 2) << endl;
+            m_checkedList.insert(m_wndList.GetItemText(i, 2));
         }
     fout.close();
 
@@ -372,7 +373,7 @@ void CProcessAssistantDlg::OnDblclkListProcess(NMHDR *pNMHDR, LRESULT *pResult)
 {
     LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
     int item = pNMItemActivate->iItem;
-    if (item >= 0 && item <= m_wndList.GetItemCount())
+    if (item >= 0 && item < m_wndList.GetItemCount())
         m_wndList.SetCheck(item, !m_wndList.GetCheck(item));
     *pResult = 0;
 }
@@ -381,8 +382,8 @@ void CProcessAssistantDlg::OnNM_RClickListProcess(NMHDR *pNMHDR, LRESULT *pResul
 {
     LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
     m_selected = pNMItemActivate->iItem;
-    if (m_selected >= 0 && m_selected <= m_wndList.GetItemCount()){
-        int subIndex = (m_wndList.GetItemText(m_selected, 2) == "") ? 1 : 2;
+    if (m_selected >= 0 && m_selected < m_wndList.GetItemCount()){
+        int subIndex = (m_wndList.GetItemText(m_selected, 3) == "") ? 1 : 2;
         CMenu pMenu; //加载菜单
         if (pMenu.LoadMenu(IDR_MENU1)) {
             CPoint pt;
@@ -396,14 +397,14 @@ void CProcessAssistantDlg::OnNM_RClickListProcess(NMHDR *pNMHDR, LRESULT *pResul
 
 void CProcessAssistantDlg::OnRClick_OpenDir()
 {
-    CString path = m_wndList.GetItemText(m_selected, 1);
+    CString path = m_wndList.GetItemText(m_selected, 2);
     path = "/e,/select, " + path; //通过命令参数实现选定对应文件
     ShellExecute(m_hWnd, "open", "explorer", path, 0, SW_SHOW); //打开文件夹
 }
 
 void CProcessAssistantDlg::OnRClick_StartProcess()
 {
-    CString path = m_wndList.GetItemText(m_selected, 1);
+    CString path = m_wndList.GetItemText(m_selected, 2);
     ShellExecute(m_hWnd, "open", path, 0, 0, SW_SHOW);
     updateProcessList(); //主动刷新列表
 }
@@ -474,10 +475,11 @@ void CProcessAssistantDlg::loadListFromTaskFile()
             int indexIcon = m_iconList.Add(hIcon);
             CString exeName = process.substr(process.rfind('\\') + 1).c_str(); //仅得到文件名
             int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon);
-            m_wndList.SetItemText(item, 1, process.c_str());
             m_wndList.SetCheck(item);
+            m_wndList.SetItemText(item, 1, getFileDescription(process.c_str()));
+            m_wndList.SetItemText(item, 2, process.c_str());
             if (isProcessExist(process.c_str()))
-                m_wndList.SetItemText(item, 2, "运行中");
+                m_wndList.SetItemText(item, 3, "运行中");
             m_processList.insert(process.c_str()); //存入map
             m_processIndexMap[process.c_str()] = m_listCnt - 1;
             m_checkedList.insert(process.c_str());
@@ -519,8 +521,9 @@ void CProcessAssistantDlg::loadListFromTaskMgr()
                     }
                     int indexIcon = m_iconList.Add(hIcon);
                     int item = m_wndList.InsertItem(m_listCnt++, exeName.Left(exeName.GetLength() - 4), indexIcon); //插入一项
-                    m_wndList.SetItemText(item, 1, exePath);
-                    m_wndList.SetItemText(item, 2, "运行中");
+                    m_wndList.SetItemText(item, 1, getFileDescription(exePath));
+                    m_wndList.SetItemText(item, 2, exePath);
+                    m_wndList.SetItemText(item, 3, "运行中");
                     m_processList.insert(exePath); //存入该记录
                     m_processIndexMap[exePath] = m_listCnt - 1;
                     DestroyIcon(hIcon); //销毁图标
@@ -567,12 +570,12 @@ void CProcessAssistantDlg::updateProcessList()
                 m_processIndexMap.erase(m_processIndexMap.find(*itTmp));
                 m_processList.erase(itTmp); //从进程列表映射表中删除
             } //进程不存在但在自启动列表中,只需要将状态修改
-            else if (m_wndList.GetItemText(idx, 2) != "")
-                m_wndList.SetItemText(idx, 2, "");
+            else if (m_wndList.GetItemText(idx, 3) != "")
+                m_wndList.SetItemText(idx, 3, "");
         }
         else if (m_checkedList.count(*itTmp) != 0){ //在自启动列表中
-            if (m_wndList.GetItemText(idx, 2) != "运行中")
-                m_wndList.SetItemText(idx, 2, "运行中");
+            if (m_wndList.GetItemText(idx, 3) != "运行中")
+                m_wndList.SetItemText(idx, 3, "运行中");
         }
     }
     //载入任务管理器中的任务列表
@@ -592,6 +595,30 @@ void CProcessAssistantDlg::updateProcessList()
     }
     if (listsToRun != lastLists)
         lastLists = listsToRun;
+}
+
+CString CProcessAssistantDlg::getFileDescription(const CString& filePathName)
+{
+    CString fileDescription;
+    DWORD unsued = 0;
+    DWORD dwLen = GetFileVersionInfoSize(filePathName, &unsued);
+    if (dwLen > 0)
+    {
+        char* pMem = new char[dwLen + 1]();
+        if (GetFileVersionInfo(filePathName, 0, dwLen, pMem)){
+            UINT uInfoSize = 0;
+            void* pBuffer;
+            VerQueryValue(pMem, "\\VarFileInfo\\Translation", &pBuffer, &uInfoSize);
+            CString subBlock;
+            subBlock.Format("\\StringFileInfo\\%04x%04x\\FileDescription", *(USHORT*)pBuffer, *((USHORT*)pBuffer + 1));
+            if (VerQueryValue(pMem, subBlock, &pBuffer, &uInfoSize))
+                fileDescription = (char*)pBuffer;
+        }
+        delete[] pMem;
+    }
+    if (fileDescription.IsEmpty())
+        fileDescription = filePathName.Right(filePathName.GetLength() - 1 - filePathName.ReverseFind('\\'));
+    return fileDescription;
 }
 
 

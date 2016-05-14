@@ -64,4 +64,5 @@ public:
     void loadListFromTaskMgr();        //从任务管理器获取进程列表
     void openUnclosedProcess();        //打开上次未关闭的进程
     void updateProcessList();          //更新进程列表(通过计时器自动调用)
+    CString getFileDescription(const CString& filePathName); //获取exe文件的文件描述
 };
