@@ -126,7 +126,7 @@ void updateListThread(void * _pDlg)
 {
     CProcessAssistantDlg* pDlg = static_cast<CProcessAssistantDlg*>(_pDlg);
     while (pDlg){
-        Sleep(3000);
+        Sleep(5000);
         pDlg->updateProcessList();
     }
 }
@@ -312,8 +312,9 @@ void CProcessAssistantDlg::OnBnClickedBtSet()
 
 void CProcessAssistantDlg::OnOpenMainDlg()
 {
-    ShowWindow(SW_SHOW);
-    SetFocus();
+    SetWindowPos(&CWnd::wndTopMost, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
+    SetWindowPos(&CWnd::wndNoTopMost, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
+    ShowWindow(SW_SHOWNORMAL);
 }
 
 void CProcessAssistantDlg::OnExitMe()
@@ -582,16 +583,15 @@ void CProcessAssistantDlg::updateProcessList()
     for (auto& elem : m_checkedList)
         if (isProcessExist(elem))
             listsToRun += elem + "\n";
-    if (listsToRun != lastLists){
-        if (listsToRun.IsEmpty())
-            DeleteFile(m_autoRunListFile);
-        else{
-            ofstream fout(m_autoRunListFile);
-            fout << listsToRun;
-            fout.close();
-        }
-        lastLists = listsToRun;
+    if (lastLists.IsEmpty())
+        DeleteFile(m_autoRunListFile);
+    else{
+        ofstream fout(m_autoRunListFile);
+        fout << lastLists; //将上一次的列表写入文件,防止关机时指定进程先被关闭
+        fout.close();
     }
+    if (listsToRun != lastLists)
+        lastLists = listsToRun;
 }
 
 
